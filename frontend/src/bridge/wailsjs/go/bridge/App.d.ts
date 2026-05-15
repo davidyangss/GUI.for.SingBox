@@ -26,6 +26,8 @@ export function IsStartup():Promise<boolean>;
 
 export function KillProcess(arg1:number,arg2:number):Promise<bridge.FlagResult>;
 
+export function KillStaleCoreProcesses():Promise<bridge.FlagResult>;
+
 export function ListServer():Promise<bridge.FlagResult>;
 
 export function MakeDir(arg1:string):Promise<bridge.FlagResult>;

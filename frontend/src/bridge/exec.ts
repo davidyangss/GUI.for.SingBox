@@ -97,3 +97,11 @@ export const KillProcess = async (pid: number, timeout = 10) => {
   }
   return data
 }
+
+export const KillStaleCoreProcesses = async () => {
+  const { flag, data } = await App.KillStaleCoreProcesses()
+  if (!flag) {
+    throw data
+  }
+  return Number(data)
+}

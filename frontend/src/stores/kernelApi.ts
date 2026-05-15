@@ -15,6 +15,7 @@ import {
 import {
   ProcessInfo,
   KillProcess,
+  KillStaleCoreProcesses,
   ExecBackground,
   ReadFile,
   RemoveFile,
@@ -397,6 +398,19 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     const processName = corePid.value === -1 ? '' : await ProcessInfo(corePid.value).catch(() => '')
     running.value = processName.startsWith('sing-box')
 
+    if (!running.value) {
+      const killed = await KillStaleCoreProcesses().catch(() => 0)
+      if (killed > 0) {
+        logsStore.recordKernelLog(
+          `[gui] initCoreState: killed ${killed} stale sing-box process(es) left by previous instance`,
+        )
+        await Promise.all([
+          RemoveFile(CorePidFilePath).catch(() => undefined),
+          RemoveFile(CoreLogFilePath).catch(() => undefined),
+        ])
+      }
+    }
+
     coreStateLoading.value = false
 
     if (running.value) {
@@ -603,6 +617,13 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     if (running.value) throw 'The core is already running'
 
     logsStore.clearKernelLog()
+    const staleKilled = await KillStaleCoreProcesses().catch(() => 0)
+    if (staleKilled > 0) {
+      logsStore.recordKernelLog(
+        `[gui] startCore: killed ${staleKilled} stale sing-box process(es) before starting new instance`,
+      )
+      await sleep(800)
+    }
     await Promise.all([
       RemoveFile(CorePidFilePath).catch(() => undefined),
       RemoveFile(CoreLogFilePath).catch(() => undefined),

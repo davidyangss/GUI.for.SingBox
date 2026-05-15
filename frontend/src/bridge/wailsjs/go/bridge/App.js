@@ -50,6 +50,10 @@ export function KillProcess(arg1, arg2) {
   return window['go']['bridge']['App']['KillProcess'](arg1, arg2);
 }
 
+export function KillStaleCoreProcesses() {
+  return window['go']['bridge']['App']['KillStaleCoreProcesses']();
+}
+
 export function ListServer() {
   return window['go']['bridge']['App']['ListServer']();
 }

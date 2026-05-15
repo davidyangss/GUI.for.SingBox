@@ -391,6 +391,88 @@ func (a *App) ProcessMemory(pid int32) FlagResult {
 	return FlagResult{false, err.Error()}
 }
 
+func findProcessesByName(targetName string) ([]int32, error) {
+	allProcs, err := process.Processes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list processes: %w", err)
+	}
+
+	var matched []int32
+	for _, proc := range allProcs {
+		pid := proc.Pid
+
+		name, err := proc.Name()
+		if err == nil && name == targetName {
+			matched = append(matched, pid)
+			continue
+		}
+
+		exePath, err := proc.Exe()
+		if err == nil && filepath.Base(exePath) == targetName {
+			matched = append(matched, pid)
+			continue
+		}
+
+		cmdline, err := proc.CmdlineSlice()
+		if err == nil && len(cmdline) > 0 && filepath.Base(cmdline[0]) == targetName {
+			matched = append(matched, pid)
+		}
+	}
+
+	return matched, nil
+}
+
+func (a *App) KillStaleCoreProcesses() FlagResult {
+	log.Printf("KillStaleCoreProcesses")
+
+	matchedPids, err := findProcessesByName("sing-box")
+	if err != nil {
+		return FlagResult{false, err.Error()}
+	}
+
+	if len(matchedPids) == 0 {
+		return FlagResult{true, "0"}
+	}
+
+	var killedCount int
+	var errors []string
+
+	for _, pid := range matchedPids {
+		osProcess, err := os.FindProcess(int(pid))
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("find %d: %v", pid, err))
+			continue
+		}
+
+		if err := SendExitSignal(osProcess); err != nil {
+			log.Printf("KillStaleCoreProcesses: SendExitSignal for pid %d failed: %s", pid, err.Error())
+			if sysruntime.GOOS == "darwin" && isPermissionDenied(err) {
+				if adminErr := terminateDarwinAdminProcess(osProcess, 10); adminErr != nil {
+					errors = append(errors, fmt.Sprintf("admin kill %d: %v", pid, adminErr))
+					continue
+				}
+			} else {
+				errors = append(errors, fmt.Sprintf("signal %d: %v", pid, err))
+				continue
+			}
+		}
+
+		if waitErr := waitForProcessExitWithTimeout(osProcess, 10); waitErr != nil {
+			errors = append(errors, fmt.Sprintf("wait %d: %v", pid, waitErr))
+			continue
+		}
+
+		killedCount++
+		log.Printf("KillStaleCoreProcesses: killed stale sing-box pid %d", pid)
+	}
+
+	if len(errors) > 0 {
+		return FlagResult{false, fmt.Sprintf("killed %d/%d, errors: %s", killedCount, len(matchedPids), strings.Join(errors, "; "))}
+	}
+
+	return FlagResult{true, strconv.Itoa(killedCount)}
+}
+
 func (a *App) KillProcess(pid int, timeout int) FlagResult {
 	log.Printf("KillProcess: %d %d", pid, timeout)
 

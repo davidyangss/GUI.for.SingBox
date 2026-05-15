@@ -317,6 +317,41 @@ Key files:
 - `frontend/src/stores/kernelApi.ts`
 - `frontend/src/components/_common/TitleBar.vue`
 
+### Phase 14: Clean up stale sing-box processes before startup
+
+Problem:
+
+- app could crash or be force-quit while a root-started TUN `sing-box` was running
+- the root `sing-box` process continued running because it was launched via `osascript ... with administrator privileges` and was not a child of the app
+- Go goroutine cleaned up `pid.txt` but the root process still held the SQLite lock on `cache.db`
+- next app launch started a new `sing-box` instance
+- new instance failed with `FATAL[...] start service: initialize cache-file: timeout` because `cache.db` was locked by the stale root process
+- UI showed: first screen → wait a few seconds → error screen, while "actually sing-box process is still there" (the stale one)
+
+Root cause:
+
+- TUN mode on macOS uses admin launch, which creates an independent root process
+- pid file cleanup happened in goroutine on app exit, but the root process survived
+- no mechanism existed to scan for and kill leftover `sing-box` processes before starting a new instance
+
+Fix:
+
+- add `findProcessesByName()` in Go bridge to scan all processes by name
+- add `KillStaleCoreProcesses()` bridge function that:
+  - finds all processes named `sing-box`
+  - tries normal `SIGINT` first
+  - on macOS `EPERM` (permission denied), uses `terminateDarwinAdminProcess()` with admin shell
+  - logs each killed pid
+- in `initCoreState()`, when no running core is detected, call `KillStaleCoreProcesses()` first
+- in `startCore()`, call `KillStaleCoreProcesses()` before removing pid/log files
+- after killing stale processes, add a short cooldown (800ms) to let macOS release resources
+
+Key files:
+
+- `bridge/exec.go` (new `findProcessesByName`, `KillStaleCoreProcesses`)
+- `frontend/src/bridge/exec.ts` (export `KillStaleCoreProcesses`)
+- `frontend/src/stores/kernelApi.ts` (call in `initCoreState` and `startCore`)
+
 ---
 
 ## Current Expected Behavior
@@ -370,8 +405,9 @@ Key files:
 
 | File | Responsibility |
 |------|----------------|
-| `bridge/exec.go` | macOS admin launch and admin-assisted stop/kill |
-| `frontend/src/stores/kernelApi.ts` | `tunMode` persistence binding, startup/restart/stop lifecycle, error extraction |
+| `bridge/exec.go` | macOS admin launch, admin-assisted stop/kill, stale process cleanup |
+| `frontend/src/bridge/exec.ts` | bridge function exports including `KillStaleCoreProcesses` |
+| `frontend/src/stores/kernelApi.ts` | `tunMode` persistence binding, startup/restart/stop lifecycle, error extraction, stale process cleanup |
 | `frontend/src/stores/appSettings.ts` | persistent app settings including `tunMode` |
 | `frontend/src/types/app.d.ts` | type definition for stored `tunMode` |
 | `frontend/src/views/HomeView/components/OverView.vue` | overview switches and direct restart-on-tun-toggle |
@@ -393,22 +429,27 @@ When upstream changes these areas, re-check and reapply this feature set in roug
    - confirm `setTunMode()` still exists or re-add equivalent logic
    - confirm startup error extraction still prefers real error lines
    - confirm restart keeps runtime profile when needed
+   - confirm `KillStaleCoreProcesses` is called in `initCoreState()` and `startCore()`
 2. `exec.go`
    - confirm admin launch path still uses `osascript ... with administrator privileges`
    - confirm permission-denied stop path still retries with admin shell
-3. `OverView.vue`
+   - confirm `findProcessesByName()` and `KillStaleCoreProcesses()` exist
+   - confirm `KillStaleCoreProcesses` uses `terminateDarwinAdminProcess()` on macOS EPERM
+3. `frontend/src/bridge/exec.ts`
+   - confirm `KillStaleCoreProcesses` is exported
+4. `OverView.vue`
    - confirm `Tun模式` still restarts immediately
    - confirm duplicate restart-required controls are not reintroduced
-4. `TitleBar.vue`
+5. `TitleBar.vue`
    - confirm title-bar restart entry still exists
    - confirm button is outside draggable area
-5. `tray.ts`
+6. `tray.ts`
    - confirm tray `tun` actions target persisted `tunMode`
    - confirm tray async actions still have error handling
    - confirm tray `tun` actions show main window before applying change
-6. `InboundsConfig.vue`
+7. `InboundsConfig.vue`
    - confirm profile editor `tun` switch still syncs with global intent if required by current design
-7. `kernelApi.ts` stop/restart flow
+8. `kernelApi.ts` stop/restart flow
    - confirm `waitForCoreStopped()` or equivalent fallback still exists
    - confirm restart does not block forever if stop event is missing but process is already dead
    - confirm restart still waits for controller release and retries with bounded backoff on `address already in use`
@@ -472,6 +513,8 @@ if p.exists():
     for needle in [
         b'setTunMode',
         b'KillProcess: retrying with macOS administrator privileges for pid',
+        b'KillStaleCoreProcesses',
+        b'killed stale sing-box pid',
         b'home.overview.manualRestartCore',
     ]:
         print(needle.decode('utf-8', 'ignore'), needle in data)
@@ -571,6 +614,21 @@ Check:
 - `waitForCoreStopped()` fallback in `kernelApi.ts`
 - whether fallback probes real process state via `ProcessInfo()`
 
+### Symptom: startup fails with `FATAL[...] start service: initialize cache-file: timeout`
+
+Likely cause:
+
+- stale root `sing-box` process from previous TUN session is still running and holding SQLite lock on `cache.db`
+- app was force-quit or crashed, leaving behind the admin-started process
+- new instance cannot open `cache.db` because it is locked
+
+Check:
+
+- `KillStaleCoreProcesses()` in `bridge/exec.go` - should find and kill all `sing-box` processes
+- `KillStaleCoreProcesses()` calls in `initCoreState()` and `startCore()` in `kernelApi.ts`
+- cooldown after stale process cleanup (should be ~800ms)
+- log lines like `[gui] startCore: killed N stale sing-box process(es)`
+
 ---
 
 ## Search Hints
@@ -583,6 +641,9 @@ If structure changes after upstream sync, search for:
 - `waitForCoreStopped`
 - `waitForControllerReleased`
 - `KillProcess: retrying with macOS administrator privileges`
+- `KillStaleCoreProcesses`
+- `findProcessesByName`
+- `killed stale sing-box pid`
 - `home.overview.manualRestartCore`
 - `with administrator privileges`
 - `needRestart`
