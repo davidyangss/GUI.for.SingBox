@@ -460,20 +460,24 @@ export const usePluginsStore = defineStore('plugins', () => {
     if (idx === -1) return
     const plugin = plugins.value[idx]!
 
-    ensurePluginRuntimeCache(plugin)
+    try {
+      ensurePluginRuntimeCache(plugin)
 
-    if (!plugin.disabled) {
-      await runPluginEvent(id, PluginTriggerEvent.OnDisabled, [], {
+      if (!plugin.disabled) {
+        await runPluginEvent(id, PluginTriggerEvent.OnDisabled, [], {
+          allowDisabled: true,
+          allowUndefined: true,
+        })
+      }
+
+      await disposePluginInstance(id)
+      await runPluginEvent(id, PluginTriggerEvent.OnUninstall, [], {
         allowDisabled: true,
         allowUndefined: true,
       })
+    } catch {
+      console.warn(`[Plugin] Failed to run cleanup events for ${plugin.name}, file may be missing`)
     }
-
-    await disposePluginInstance(id)
-    await runPluginEvent(id, PluginTriggerEvent.OnUninstall, [], {
-      allowDisabled: true,
-      allowUndefined: true,
-    })
 
     plugins.value.splice(idx, 1)
 
@@ -660,8 +664,8 @@ export const usePluginsStore = defineStore('plugins', () => {
   }
   const updatePluginHub = async () => {
     pluginHubLoading.value = true
-    const promises = appSettingsStore.app.plugins.sources.flatMap((source) => {
-      if (!source.enable) return []
+    const enabledSources = appSettingsStore.app.plugins.sources.filter((source) => source.enable)
+    const promises = enabledSources.flatMap((source) => {
       return Requests<string>({
         url: source.url,
         method: RequestMethod.Get,
@@ -670,18 +674,30 @@ export const usePluginsStore = defineStore('plugins', () => {
     })
     const results = await Promise.allSettled(promises)
 
-    pluginHub.value = results.reduce((acc, result) => {
+    const nextPluginHub: Plugin[] = []
+    let hasError = false
+
+    results.forEach((result, index) => {
       if (result.status === 'fulfilled') {
         try {
           const plugins = JSON.parse(result.value.body) as Plugin[]
-          acc.push(...plugins)
+          nextPluginHub.push(...plugins)
         } catch (error) {
-          console.error('Failed to parse plugin list from source. Reason: ', error)
+          console.error(`Failed to parse plugin list from ${enabledSources[index]?.name}. Reason: `, error)
+          hasError = true
         }
+      } else {
+        console.error(`Failed to fetch plugin list from ${enabledSources[index]?.name}. Reason: `, result.reason)
+        hasError = true
       }
-      return acc
-    }, [] as Plugin[])
+    })
 
+    if (nextPluginHub.length === 0 && hasError) {
+      pluginHubLoading.value = false
+      throw 'Failed to update Plugin Hub. Please check your network or sources.'
+    }
+
+    pluginHub.value = nextPluginHub
     await WriteFile(PluginHubFilePath, JSON.stringify(pluginHub.value))
     pluginHubLoading.value = false
   }

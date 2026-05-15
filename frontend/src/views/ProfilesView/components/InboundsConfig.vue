@@ -10,11 +10,13 @@ import {
   DefaultInboundTun,
 } from '@/constant/profile'
 import { Inbound } from '@/enums/kernel'
+import { useAppSettingsStore } from '@/stores'
 import { picker, sampleID } from '@/utils'
 
 const model = defineModel<IProfile['inbounds']>({ required: true })
 
 const { t } = useI18n()
+const appSettings = useAppSettingsStore()
 
 const handleDelete = (index: number) => {
   model.value.splice(index, 1)
@@ -29,7 +31,7 @@ const inbounds = [
         tag: 'mixed-in',
         type: Inbound.Mixed,
         enable: true,
-        mixed: DefaultInboundMixed(),
+        mixed: DefaultInboundMixed(appSettings.app.mixInboundIP),
       })
     },
   },
@@ -41,7 +43,7 @@ const inbounds = [
         tag: 'http-in',
         type: Inbound.Http,
         enable: true,
-        http: DefaultInboundHttp(),
+        http: DefaultInboundHttp(appSettings.app.mixInboundIP),
       })
     },
   },
@@ -53,7 +55,7 @@ const inbounds = [
         tag: 'socks-in',
         type: Inbound.Socks,
         enable: true,
-        socks: DefaultInboundSocks(),
+        socks: DefaultInboundSocks(appSettings.app.mixInboundIP),
       })
     },
   },

@@ -127,12 +127,12 @@ export const DefaultPluginHubSources = () => [
   {
     enable: true,
     name: 'General',
-    url: 'https://raw.githubusercontent.com/GUI-for-Cores/Plugin-Hub/main/plugins/generic.json',
+    url: 'https://fastly.jsdelivr.net/gh/GUI-for-Cores/Plugin-Hub@main/plugins/generic.json',
   },
   {
     enable: true,
     name: APP_TITLE,
-    url: `https://raw.githubusercontent.com/GUI-for-Cores/Plugin-Hub/main/plugins/${
+    url: `https://fastly.jsdelivr.net/gh/GUI-for-Cores/Plugin-Hub@main/plugins/${
       {
         'GUI.for.Clash': 'gfc',
         'GUI.for.SingBox': 'gfs',

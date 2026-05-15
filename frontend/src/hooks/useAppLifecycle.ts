@@ -16,10 +16,19 @@ export const useAppLifecycle = () => {
     let _name = sampleID()
 
     const url = new URL(arg)
-    if (url.pathname === '//install-config/') {
+    const isInstallConfig =
+      url.pathname === '//install-config/' ||
+      url.pathname === '/install-config/' ||
+      url.host === 'install-config'
+    const isImportRemoteProfile =
+      url.pathname.startsWith('//import-remote-profile') ||
+      url.pathname.startsWith('/import-remote-profile') ||
+      url.host === 'import-remote-profile'
+
+    if (isInstallConfig) {
       _url = url.searchParams.get('url')
       _name = url.searchParams.get('name') || sampleID()
-    } else if (url.pathname.startsWith('//import-remote-profile')) {
+    } else if (isImportRemoteProfile) {
       _url = url.searchParams.get('url')
       _name = decodeURIComponent(url.hash).slice(1) || sampleID()
     }

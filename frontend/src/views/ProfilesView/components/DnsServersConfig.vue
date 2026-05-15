@@ -7,6 +7,7 @@ import { DnsServerTypeOptions } from '@/constant/kernel'
 import { DefaultDnsServer } from '@/constant/profile'
 import { DnsServer } from '@/enums/kernel'
 import { useBool } from '@/hooks'
+import { useAppSettingsStore } from '@/stores'
 import { deepClone, generateDnsServerURL } from '@/utils'
 
 import Tag from '@/components/Tag/index.vue'
@@ -19,6 +20,8 @@ interface Props {
 const props = defineProps<Props>()
 
 const model = defineModel<IDNSServer[]>({ required: true })
+
+const appSettings = useAppSettingsStore()
 
 let serverId = 0
 const fields = ref<IDNSServer>(DefaultDnsServer())
@@ -166,7 +169,7 @@ const renderServer = (server: IDNSServer) => {
           {{ t('kernel.dns.predefined') }}
           <KeyValueEditor
             v-model="fields.predefined"
-            :placeholder="['google.com', '127.0.0.1,::1']"
+            :placeholder="['google.com', appSettings.app.mixInboundIP + ',::1']"
           />
         </div>
       </template>

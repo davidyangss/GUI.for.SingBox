@@ -58,6 +58,10 @@ const handleClearUserAgent = () => {
       <Switch v-model="appSettings.app.autoRestartKernel" />
     </div>
     <div class="px-8 py-12 flex items-center justify-between">
+      <div class="text-16 font-bold">{{ $t('settings.mixInboundIP') }}</div>
+      <Input v-model.lazy="appSettings.app.mixInboundIP" editable class="text-14 w-120" />
+    </div>
+    <div class="px-8 py-12 flex items-center justify-between">
       <div class="text-16 font-bold">
         {{ $t('settings.githubapi.name') }}
         <span class="font-normal text-12">({{ $t('settings.githubapi.tips') }})</span>

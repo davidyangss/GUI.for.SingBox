@@ -72,6 +72,7 @@ export interface AppSettings {
   proxyBypassList: string
   autoStartKernel: boolean
   autoRestartKernel: boolean
+  mixInboundIP: string
   userAgent: string
   startupDelay: number
   connections: {

@@ -658,6 +658,7 @@ export default {
       name: '相关配置变化时自动重启核心',
       tips: '会中断所有连接，且可能重启失败',
     },
+    mixInboundIP: '混合代理监听 IP',
     admin: '以管理员身份运行',
     addPluginToMenu: '将插件添加到托盘菜单',
     addGroupToMenu: '将代理组添加到托盘菜单',

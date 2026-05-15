@@ -19,6 +19,12 @@ import {
   eventBus,
   buildSmartRegExp,
 } from '@/utils'
+import {
+  parseProxies,
+  convertToSingBox,
+  isBase64Format,
+  isClashFormat,
+} from '@/utils/proxyUtils'
 
 import type { Subscription } from '@/types/app'
 
@@ -94,10 +100,15 @@ export const useSubscribesStore = defineStore('subscribes', () => {
     }
 
     if (s.type === 'Http') {
+      const defaultUA = 'clash.meta'
+      const requestHeaders = {
+        'User-Agent': s.header.request['User-Agent'] || defaultUA,
+        ...s.header.request,
+      }
       const { headers: h, body: b } = await Requests({
         method: s.requestMethod,
         url: s.url,
-        headers: s.header.request,
+        headers: requestHeaders,
         autoTransformBody: false,
         options: {
           Insecure: s.inSecure,
@@ -126,12 +137,23 @@ export const useSubscribesStore = defineStore('subscribes', () => {
       throw 'Not a valid subscription data'
     }
 
+    try {
+      if (isBase64Format(proxies) && proxies[0]?.base64) {
+        proxies = await parseProxies(proxies[0].base64)
+      }
+      if (isClashFormat(proxies)) {
+        proxies = await convertToSingBox(proxies)
+      }
+    } catch (error) {
+      console.warn('[Subscribes] Built-in conversion failed, trying plugin:', error)
+    }
+
     const pluginStore = usePluginsStore()
 
     proxies = await pluginStore.onSubscribeTrigger(proxies, s)
 
     if (proxies.some((proxy) => proxy.name && !proxy.tag) || proxies[0]?.base64) {
-      throw 'You need to install the [节点转换] plugin first'
+      console.warn('[Subscribes] Non-sing-box format detected, plugin may handle conversion')
     }
 
     if (s.type !== 'Manual') {

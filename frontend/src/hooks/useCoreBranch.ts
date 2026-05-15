@@ -28,6 +28,9 @@ import {
   debounce,
   getKernelFileName,
   getKernelAssetFileName,
+  getKernelBundlePath,
+  getKernelExecutablePath,
+  getKernelExecutableDirectory,
 } from '@/utils'
 
 const StableUrl = 'https://api.github.com/repos/SagerNet/sing-box/releases/latest'
@@ -42,6 +45,7 @@ export const useCoreBranch = (isAlpha = false) => {
   const localVersion = ref('')
   const remoteVersion = ref('')
   const versionDetail = ref('')
+  const executablePath = ref('')
 
   const localVersionLoading = ref(false)
   const remoteVersionLoading = ref(false)
@@ -69,7 +73,7 @@ export const useCoreBranch = (isAlpha = false) => {
 
   const grantable = computed(() => localVersion.value && envStore.env.os !== OS.Windows)
 
-  const CoreFilePath = `${CoreWorkingDirectory}/${getKernelFileName(isAlpha)}`
+  const CoreFilePath = getKernelBundlePath(isAlpha)
   const CoreBakFilePath = `${CoreFilePath}.bak`
 
   const downloadCore = async () => {
@@ -152,7 +156,8 @@ export const useCoreBranch = (isAlpha = false) => {
   const getLocalVersion = async (showTips = false) => {
     localVersionLoading.value = true
     try {
-      const res = await Exec(CoreFilePath, ['version'])
+      executablePath.value = await getKernelExecutablePath(isAlpha)
+      const res = await Exec(executablePath.value, ['version'])
       versionDetail.value = res.trim()
       return res.match(/version (\S+)/)?.[1] || ''
     } catch (error: any) {
@@ -227,7 +232,8 @@ export const useCoreBranch = (isAlpha = false) => {
   }
 
   const openFileLocation = async () => {
-    await OpenDir(CoreWorkingDirectory)
+    const dir = await getKernelExecutableDirectory(isAlpha)
+    await OpenDir(dir)
   }
 
   watch(

@@ -1,6 +1,6 @@
 import { Request } from '@/api/request'
 import { WebSockets } from '@/api/websocket'
-import { useProfilesStore } from '@/stores'
+import { useAppSettingsStore, useProfilesStore } from '@/stores'
 
 import type {
   CoreApiConfig,
@@ -31,14 +31,18 @@ export enum Api {
 
 const setupCoreApi = (protocol: 'http' | 'ws') => {
   const { currentProfile: profile } = useProfilesStore()
+  const { app: appSettings } = useAppSettingsStore()
 
-  let base = `${protocol}://127.0.0.1:20123`
+  const defaultIP = appSettings.mixInboundIP
+  const defaultController = `${defaultIP}:20123`
+
+  let base = `${protocol}://${defaultController}`
   let bearer = ''
 
   if (profile) {
-    const controller = profile.experimental.clash_api.external_controller || '127.0.0.1:20123'
-    const [, port = 20123] = controller.split(':')
-    base = `${protocol}://127.0.0.1:${port}`
+    const controller = profile.experimental.clash_api.external_controller || defaultController
+    const [host = defaultIP, port = '20123'] = controller.split(':')
+    base = `${protocol}://${host}:${port}`
     bearer = profile.experimental.clash_api.secret
   }
 

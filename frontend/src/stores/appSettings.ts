@@ -72,6 +72,7 @@ export const useAppSettingsStore = defineStore('app-settings', () => {
     proxyBypassList: '',
     autoStartKernel: false,
     autoRestartKernel: false,
+    mixInboundIP: '126.0.0.1',
     userAgent: '',
     startupDelay: 30,
     connections: DefaultConnections(),
@@ -127,13 +128,39 @@ export const useAppSettingsStore = defineStore('app-settings', () => {
       settings.kernel.main = DefaultCoreConfig()
       settings.kernel.alpha = DefaultCoreConfig()
     }
+    if (!settings.mixInboundIP) {
+      settings.mixInboundIP = '126.0.0.1'
+    }
     if (!settings.proxyBypassList) {
       settings.proxyBypassList = await GetSystemProxyBypass()
     }
-    if (!settings.plugins) {
+    if (!settings.plugins || !settings.plugins.sources || settings.plugins.sources.length === 0) {
       settings.plugins = {
         sources: DefaultPluginHubSources(),
       }
+    } else {
+      // Migrate old GitHub Raw or TestingCF URLs to Fastly JSDelivr
+      settings.plugins.sources.forEach((source) => {
+        if (
+          source.url.startsWith('https://raw.githubusercontent.com/GUI-for-Cores/Plugin-Hub/main/plugins/') ||
+          source.url.startsWith('https://testingcf.jsdelivr.net/gh/GUI-for-Cores/Plugin-Hub@main/plugins/') ||
+          source.url.startsWith('https://github.com/GUI-for-Cores/Plugin-Hub/raw/main/plugins/')
+        ) {
+          source.url = source.url
+            .replace(
+              'https://raw.githubusercontent.com/GUI-for-Cores/Plugin-Hub/main/plugins/',
+              'https://fastly.jsdelivr.net/gh/GUI-for-Cores/Plugin-Hub@main/plugins/',
+            )
+            .replace(
+              'https://testingcf.jsdelivr.net/gh/GUI-for-Cores/Plugin-Hub@main/plugins/',
+              'https://fastly.jsdelivr.net/gh/GUI-for-Cores/Plugin-Hub@main/plugins/',
+            )
+            .replace(
+              'https://github.com/GUI-for-Cores/Plugin-Hub/raw/main/plugins/',
+              'https://fastly.jsdelivr.net/gh/GUI-for-Cores/Plugin-Hub@main/plugins/',
+            )
+        }
+      })
     }
 
     app.value = settings

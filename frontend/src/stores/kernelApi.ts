@@ -18,7 +18,6 @@ import {
   CoreLogFilePath,
   CorePidFilePath,
   CoreStopOutputKeyword,
-  CoreWorkingDirectory,
 } from '@/constant/kernel'
 import { DefaultInboundMixed } from '@/constant/profile'
 import { Branch } from '@/enums/app'
@@ -35,12 +34,12 @@ import {
 import {
   generateConfigFile,
   updateTrayAndMenus,
-  getKernelFileName,
   restoreProfile,
   deepClone,
   message,
   getKernelRuntimeArgs,
   getKernelRuntimeEnv,
+  getKernelExecutablePath,
   eventBus,
 } from '@/utils'
 
@@ -62,6 +61,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     port: 0,
     'mixed-port': 0,
     'socks-port': 0,
+    'mix-inbound-ip': '',
     'interface-name': '',
     'allow-lan': false,
     mode: '',
@@ -116,6 +116,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     config.value['mixed-port'] = mixed?.mixed?.listen.listen_port || 0
     config.value['port'] = http?.http?.listen.listen_port || 0
     config.value['socks-port'] = socks?.socks?.listen.listen_port || 0
+    config.value['mix-inbound-ip'] = appSettingsStore.app.mixInboundIP
     config.value['allow-lan'] = [
       mixed?.mixed?.listen.listen,
       http?.http?.listen.listen,
@@ -155,7 +156,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
       if (inbound) {
         inbound[type]!.listen.listen_port = port
       } else {
-        const _type = DefaultInboundMixed()!
+        const _type = DefaultInboundMixed(appSettingsStore.app.mixInboundIP)!
         _type.listen.listen_port = port
         inbound = {
           id: type + '-in',
@@ -173,7 +174,20 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
       if (!runtimeProfile) return
       runtimeProfile.inbounds.forEach((inbound) => {
         if (inbound.type === Inbound.Tun) return
-        inbound[inbound.type]!.listen.listen = allowLan ? '0.0.0.0' : '127.0.0.1'
+        inbound[inbound.type]!.listen.listen = allowLan
+          ? '0.0.0.0'
+          : appSettingsStore.app.mixInboundIP
+      })
+    }
+
+    const patchInboundListen = (ip: string) => {
+      if (!runtimeProfile) return
+      appSettingsStore.app.mixInboundIP = ip
+      runtimeProfile.inbounds.forEach((inbound) => {
+        if (inbound.type === Inbound.Tun) return
+        if (inbound[inbound.type]!.listen.listen !== '0.0.0.0') {
+          inbound[inbound.type]!.listen.listen = ip
+        }
       })
     }
 
@@ -201,6 +215,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
       http: () => patchInboundPort(Inbound.Http, value),
       socks: () => patchInboundPort(Inbound.Socks, value),
       mixed: () => patchInboundPort(Inbound.Mixed, value),
+      'mix-inbound-ip': () => patchInboundListen(value),
       'allow-lan': () => patchInboundAddress(value),
       tun: () => patchInboundTun(value),
       'tun-stack': () => patchInboundTun(value),
@@ -246,11 +261,12 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     }
   }
 
-  const runCoreProcess = (isAlpha: boolean) => {
+  const runCoreProcess = async (isAlpha: boolean) => {
+    const corePath = await getKernelExecutablePath(isAlpha)
     return new Promise<number | void>((resolve, reject) => {
       let output: string
       const pid = ExecBackground(
-        CoreWorkingDirectory + '/' + getKernelFileName(isAlpha),
+        corePath,
         getKernelRuntimeArgs(isAlpha),
         (out) => {
           output = out

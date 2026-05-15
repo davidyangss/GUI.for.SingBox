@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { DraggableOptions } from '@/constant/app'
@@ -15,9 +15,8 @@ let updateGroupId = 0
 const showEditModal = ref(false)
 const showSortModal = ref(false)
 const expandedSet = ref<Set<string>>(new Set(['Built-in', 'Subscription']))
-const SubscribesNameMap = ref<Record<string, string>>({})
 
-const proxyGroup = ref([
+const proxyGroup = computed(() => [
   {
     id: 'Built-in',
     name: 'kernel.outbounds.builtIn',
@@ -29,8 +28,9 @@ const proxyGroup = ref([
   {
     id: 'Subscription',
     name: 'kernel.outbounds.subscriptions',
-    proxies: [],
+    proxies: subscribesStore.subscribes.map(({ id, name }) => ({ id, tag: name, type: 'Subscribe' })),
   },
+  ...subscribesStore.subscribes.map(({ id, name, proxies }) => ({ id, name, proxies })),
 ])
 
 const fields = ref<IOutbound>(DefaultOutbound())
@@ -47,12 +47,7 @@ const handleAdd = () => {
 defineExpose({ handleAdd })
 
 const handleDeleteGroup = (index: number) => {
-  const id = model.value[index]!.id
   model.value.splice(index, 1)
-  proxyGroup.value = proxyGroup.value.map((v) => ({
-    ...v,
-    proxies: v.proxies.filter((v) => v.id !== id),
-  }))
 }
 
 const handleClearGroup = async (outbound: IOutbound) => {
@@ -70,25 +65,18 @@ const handleClearGroup = async (outbound: IOutbound) => {
 }
 
 const handleAddEnd = () => {
-  const { id, tag, type } = fields.value
-  // Add
+  const { id, tag } = fields.value
   if (updateGroupId === -1) {
     model.value.unshift(fields.value)
-    proxyGroup.value[0]!.proxies.unshift({ id, tag, type })
     return
   }
-  // Update
   model.value[updateGroupId] = fields.value
-  const idx = proxyGroup.value[0]!.proxies.findIndex((v) => v.id === id)
-  if (idx !== -1) {
-    proxyGroup.value[0]!.proxies.splice(idx, 1, { id, tag, type })
-    model.value
-      .filter((outbound) => [Outbound.Selector, Outbound.Urltest].includes(outbound.type as any))
-      .forEach(({ outbounds }) => {
-        const proxy = outbounds.find((v) => v.id === id)
-        proxy && (proxy.tag = tag)
-      })
-  }
+  model.value
+    .filter((outbound) => [Outbound.Selector, Outbound.Urltest].includes(outbound.type as any))
+    .forEach(({ outbounds }) => {
+      const proxy = outbounds.find((v) => v.id === id)
+      proxy && (proxy.tag = tag)
+    })
 }
 
 const handleEditGroup = (index: number) => {
@@ -178,12 +166,6 @@ const isExpanded = (key: string) => expandedSet.value.has(key)
 const showLost = () => message.warn('kernel.outbounds.notFound')
 
 const showNeedToAdd = () => message.error('kernel.outbounds.needToAdd')
-
-subscribesStore.subscribes.forEach(async ({ id, name, proxies }) => {
-  proxyGroup.value[1]!.proxies.push({ id, tag: name, type: 'Subscribe' })
-  proxyGroup.value.push({ id, name, proxies })
-  SubscribesNameMap.value[id] = name
-})
 </script>
 
 <template>

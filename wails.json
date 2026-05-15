@@ -13,6 +13,13 @@
   },
   "info": {
     "copyright": "Copyright",
-    "comments": "https://github.com/GUI-for-Cores"
+    "comments": "https://github.com/GUI-for-Cores",
+    "protocols": [
+      {
+        "scheme": "sing-box",
+        "description": "GUI.for.SingBox Protocol",
+        "role": "Viewer"
+      }
+    ]
   }
 }
