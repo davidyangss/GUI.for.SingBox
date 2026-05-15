@@ -346,6 +346,7 @@ export default {
       settings: 'Core Settings',
       settingsTips:
         'Takes effect temporarily. For persistent changes, please modify the `profile` settings.',
+      manualRestartCore: 'Configuration updated. Please restart the core manually to apply it.',
       updateGEO: 'Update GEO',
       needPort: 'Please add a Mixed/Http/Socks inbound first',
       needTun: 'Please add a TUN inbound first',

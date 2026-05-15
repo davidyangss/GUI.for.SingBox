@@ -80,6 +80,7 @@ export const useAppSettingsStore = defineStore('app-settings', () => {
       realMemoryUsage: false,
       branch: Branch.Main,
       profile: '',
+      tunMode: false,
       autoClose: true,
       unAvailable: true,
       cardMode: true,
@@ -127,6 +128,9 @@ export const useAppSettingsStore = defineStore('app-settings', () => {
     if (!settings.kernel.main) {
       settings.kernel.main = DefaultCoreConfig()
       settings.kernel.alpha = DefaultCoreConfig()
+    }
+    if (typeof settings.kernel.tunMode !== 'boolean') {
+      settings.kernel.tunMode = false
     }
     if (!settings.mixInboundIP) {
       settings.mixInboundIP = '126.0.0.1'

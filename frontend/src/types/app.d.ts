@@ -83,6 +83,7 @@ export interface AppSettings {
     realMemoryUsage: boolean
     branch: Branch
     profile: string
+    tunMode: boolean
     autoClose: boolean
     unAvailable: boolean
     cardMode: boolean

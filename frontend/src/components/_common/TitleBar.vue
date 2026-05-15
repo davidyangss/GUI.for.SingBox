@@ -13,7 +13,7 @@ import {
 } from '@/bridge'
 import { OS } from '@/enums/app'
 import { useAppSettingsStore, useKernelApiStore, useEnvStore, useAppStore } from '@/stores'
-import { APP_TITLE, APP_VERSION, debounce, exitApp, reloadApp } from '@/utils'
+import { APP_TITLE, APP_VERSION, debounce, exitApp, reloadApp, message } from '@/utils'
 
 import type { Menu } from '@/types/app'
 
@@ -26,6 +26,15 @@ const envStore = useEnvStore()
 const appStore = useAppStore()
 
 const isDarwin = envStore.env.os === OS.Darwin
+
+const handleRestartKernel = async () => {
+  try {
+    await kernelApiStore.restartCore()
+  } catch (error: any) {
+    console.error(error)
+    message.error(error)
+  }
+}
 
 const pinWindow = () => {
   isPinned.value = !isPinned.value
@@ -74,13 +83,39 @@ onUnmounted(() => window.removeEventListener('resize', onResize))
     <div
       :class="isDarwin ? 'justify-center py-4 text-12' : 'text-14'"
       :style="{
-        color: kernelApiStore.running ? 'var(--primary-color)' : 'var(--color)',
+        color: kernelApiStore.needRestart
+          ? '#cf1322'
+          : kernelApiStore.running
+            ? 'var(--primary-color)'
+            : 'var(--color)',
       }"
       class="font-bold w-full h-full flex items-center"
       @dblclick="WindowToggleMaximise"
     >
       {{ APP_TITLE }} {{ APP_VERSION }}
-      <CustomAction :actions="appStore.customActions.title_bar" />
+      <span
+        v-if="kernelApiStore.needRestart"
+        class="ml-8 px-8 py-2 rounded-full text-12"
+        style="background: #fff1f0; color: #cf1322; line-height: 1"
+      >
+        {{ $t('home.overview.restart') }}
+      </span>
+      <div class="ml-8 flex items-center gap-4" style="--wails-draggable: disabled">
+        <Tag v-if="kernelApiStore.needRestart" color="orange" size="small">
+          {{ $t('settings.needRestart') }}
+        </Tag>
+        <Button
+          v-if="kernelApiStore.needRestart"
+          size="small"
+          type="primary"
+          class="font-bold"
+          style="background: #cf1322; border-color: #cf1322; color: #fff"
+          @click.stop="handleRestartKernel"
+        >
+          {{ $t('home.overview.restart') }}
+        </Button>
+        <CustomAction :actions="appStore.customActions.title_bar" />
+      </div>
       <Icon
         v-if="kernelApiStore.starting || kernelApiStore.stopping || kernelApiStore.restarting"
         :size="14"

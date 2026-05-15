@@ -86,7 +86,10 @@ watch(showController, (v) => {
 <template>
   <div class="relative overflow-hidden h-full" @wheel.passive="onMouseWheel">
     <div
-      v-if="(!kernelApiStore.running && !kernelApiStore.stopping) || kernelApiStore.starting"
+      v-if="
+        (!kernelApiStore.running && !kernelApiStore.stopping && !kernelApiStore.restarting) ||
+        kernelApiStore.starting
+      "
       class="w-full h-[90%] flex flex-col items-center justify-center"
     >
       <img :src="logo" draggable="false" class="w-128 mb-16" />

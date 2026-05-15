@@ -25,6 +25,7 @@ import {
   APP_TITLE,
   APP_VERSION,
   handleUseProxy,
+  message,
 } from '@/utils'
 
 import type { MenuItem } from '@/types/app'
@@ -75,6 +76,31 @@ const generateUniqueEventsForMenu = (menus: MenuItem[]) => {
   }
 
   return menus.map(processMenu)
+}
+
+const resolveError = (error: any) => error?.message || String(error)
+
+const runTrayAction = async (
+  action: () => Promise<any> | any,
+  options: {
+    showWindow?: boolean
+    successMessage?: string
+  } = {},
+) => {
+  const { showWindow = false, successMessage } = options
+  try {
+    if (showWindow) {
+      await ShowMainWindow().catch(() => undefined)
+    }
+    await action()
+    if (successMessage) {
+      message.info(successMessage, 5_000)
+    }
+  } catch (error: any) {
+    await ShowMainWindow().catch(() => undefined)
+    Notify('Error', resolveError(error))
+    message.error(error)
+  }
 }
 
 const getTrayMenus = () => {
@@ -188,6 +214,17 @@ const getTrayMenus = () => {
     },
     {
       type: 'item',
+      text: 'settings.needRestart',
+      tooltip: 'home.overview.manualRestartCore',
+      hidden: !kernelApiStore.needRestart,
+      event: kernelApiStore.restartCore,
+    },
+    {
+      type: 'separator',
+      hidden: !kernelApiStore.needRestart,
+    },
+    {
+      type: 'item',
       text: 'kernel.mode',
       hidden: !kernelApiStore.running,
       children: ModeOptions.map((mode) => ({
@@ -212,19 +249,19 @@ const getTrayMenus = () => {
           type: 'item',
           text: 'tray.startKernel',
           hidden: kernelApiStore.running,
-          event: kernelApiStore.startCore,
+          event: () => runTrayAction(() => kernelApiStore.startCore()),
         },
         {
           type: 'item',
           text: 'tray.restartKernel',
           hidden: !kernelApiStore.running,
-          event: kernelApiStore.restartCore,
+          event: () => runTrayAction(() => kernelApiStore.restartCore()),
         },
         {
           type: 'item',
           text: 'tray.stopKernel',
           hidden: !kernelApiStore.running,
-          event: kernelApiStore.stopCore,
+          event: () => runTrayAction(() => kernelApiStore.stopCore()),
         },
       ],
     },
@@ -259,14 +296,22 @@ const getTrayMenus = () => {
         {
           type: 'item',
           text: 'tray.enableTunMode',
-          hidden: kernelApiStore.config.tun.enable,
-          event: () => kernelApiStore.updateConfig('tun', { enable: true }),
+          hidden: kernelApiStore.tunMode,
+          event: () =>
+            runTrayAction(() => kernelApiStore.updateConfig('tun', { enable: true }), {
+              showWindow: true,
+              successMessage: 'home.overview.manualRestartCore',
+            }),
         },
         {
           type: 'item',
           text: 'tray.disableTunMode',
-          hidden: !kernelApiStore.config.tun.enable,
-          event: () => kernelApiStore.updateConfig('tun', { enable: false }),
+          hidden: !kernelApiStore.tunMode,
+          event: () =>
+            runTrayAction(() => kernelApiStore.updateConfig('tun', { enable: false }), {
+              showWindow: true,
+              successMessage: 'home.overview.manualRestartCore',
+            }),
         },
       ],
     },
@@ -339,11 +384,16 @@ export const updateTrayAndMenus = debounce(async () => {
   const trayMenus = getTrayMenus()
   const trayIcons = getTrayIcons()
   const pluginsStore = usePluginsStore()
+  const kernelApiStore = useKernelApiStore()
+  const { t } = i18n.global
 
   const isDarwin = useEnvStore().env.os === OS.Darwin
   const title = isDarwin ? '' : APP_TITLE
 
-  const tray = { icon: trayIcons, title, tooltip: APP_TITLE + ' ' + APP_VERSION }
+  const tooltip = kernelApiStore.needRestart
+    ? `${APP_TITLE} ${APP_VERSION} - ${t('settings.needRestart')}`
+    : `${APP_TITLE} ${APP_VERSION}`
+  const tray = { icon: trayIcons, title, tooltip }
 
   const [finalTray, finalMenus] = await pluginsStore.onTrayUpdateTrigger(tray, trayMenus)
 

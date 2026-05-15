@@ -89,10 +89,11 @@ const handleShowSettings = () => {
 }
 
 const onTunSwitchChange = async (enable: boolean) => {
+  const previousTunMode = !enable
   try {
-    await kernelApiStore.updateConfig('tun', { enable })
+    await kernelApiStore.setTunMode(enable, true)
   } catch (error: any) {
-    kernelApiStore.config.tun.enable = !kernelApiStore.config.tun.enable
+    kernelApiStore.tunMode = previousTunMode
     console.error(error)
     message.error(error)
   }
@@ -168,10 +169,11 @@ onUnmounted(() => {
         {{ t('home.overview.systemProxy') }}
       </Switch>
       <Switch
-        v-model="kernelApiStore.config.tun.enable"
+        v-model="kernelApiStore.tunMode"
         size="small"
         border="square"
         class="ml-8"
+        :loading="kernelApiStore.restarting"
         @change="onTunSwitchChange"
       >
         {{ t('home.overview.tunMode') }}

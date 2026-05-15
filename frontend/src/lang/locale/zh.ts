@@ -345,6 +345,7 @@ export default {
       receive: '下行速率',
       settings: '核心设置',
       settingsTips: '暂时生效，持久化请修改配置文件',
+      manualRestartCore: '配置已更新，请手动重启核心生效',
       updateGEO: '更新 GEO',
       needPort: '请先添加一个Mixed/Http/Socks入站',
       needTun: '请先添加一个TUN入站',

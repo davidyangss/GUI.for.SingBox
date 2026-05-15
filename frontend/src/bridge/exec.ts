@@ -7,9 +7,11 @@ interface ExecOptions {
   PidFile?: string
   LogFile?: string
   Convert?: boolean
+  Admin?: boolean
   Env?: Record<string, any>
   StopOutputKeyword?: string
   WorkingDirectory?: string
+  admin?: boolean
   convert?: boolean
   env?: Record<string, any>
   stopOutputKeyword?: string
@@ -20,6 +22,7 @@ const mergeExecOptions = (options: ExecOptions) => {
     PidFile: options.PidFile ?? '',
     LogFile: options.LogFile ?? '',
     Convert: options.Convert ?? options.convert ?? false,
+    Admin: options.Admin ?? options.admin ?? false,
     Env: options.Env ?? options.env ?? {},
     StopOutputKeyword: options.StopOutputKeyword ?? options.stopOutputKeyword ?? '',
     WorkingDirectory: options.WorkingDirectory ?? '',

@@ -41,6 +41,7 @@ type ExecOptions struct {
 	StopOutputKeyword string
 	WorkingDirectory  string
 	Convert           bool
+	Admin             bool
 	Env               map[string]string
 }
 

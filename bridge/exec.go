@@ -14,11 +14,128 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/process"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func escapeAppleScriptString(value string) string {
+	value = strings.ReplaceAll(value, "\\", "\\\\")
+	return strings.ReplaceAll(value, "\"", "\\\"")
+}
+
+func buildShellCommand(path string, args []string, options ExecOptions, pidPath string, logPath string) string {
+	parts := []string{}
+
+	if options.WorkingDirectory != "" {
+		parts = append(parts, "cd "+shellQuote(options.WorkingDirectory))
+	}
+
+	for key, value := range options.Env {
+		parts = append(parts, "export "+key+"="+shellQuote(value))
+	}
+
+	command := "exec " + shellQuote(path)
+	for _, arg := range args {
+		command += " " + shellQuote(arg)
+	}
+
+	if pidPath != "" {
+		command = "echo $$ > " + shellQuote(pidPath) + "; " + command
+	}
+
+	if logPath != "" {
+		command += " >> " + shellQuote(logPath) + " 2>&1"
+	}
+
+	parts = append(parts, command)
+	return strings.Join(parts, "; ")
+}
+
+func buildDarwinAdminCommand(path string, args []string, options ExecOptions, pidPath string, logPath string) *exec.Cmd {
+	shellCmd := buildShellCommand(path, args, options, pidPath, logPath)
+	appleScript := fmt.Sprintf(`do shell script "%s" with administrator privileges`, escapeAppleScriptString(shellCmd))
+	cmd := exec.Command("osascript", "-e", appleScript)
+	SetCmdWindowHidden(cmd)
+	return cmd
+}
+
+func runDarwinAdminShell(shellCmd string) error {
+	appleScript := fmt.Sprintf(`do shell script "%s" with administrator privileges`, escapeAppleScriptString(shellCmd))
+	cmd := exec.Command("osascript", "-e", appleScript)
+	SetCmdWindowHidden(cmd)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		output := strings.TrimSpace(string(out))
+		if output == "" {
+			output = err.Error()
+		}
+		return errors.New(output)
+	}
+	return nil
+}
+
+func isPermissionDenied(err error) bool {
+	if err == nil {
+		return false
+	}
+	var errno syscall.Errno
+	if errors.As(err, &errno) && errno == syscall.EPERM {
+		return true
+	}
+	lowerErr := strings.ToLower(err.Error())
+	return strings.Contains(lowerErr, "operation not permitted") || strings.Contains(lowerErr, "permission denied")
+}
+
+func waitForProcessExitWithTimeoutNoKill(process *os.Process, timeoutSeconds int) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSeconds)*time.Second)
+	defer cancel()
+
+	interval := 10 * time.Millisecond
+	maxInterval := 1000 * time.Millisecond
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out after %d seconds waiting for process %d", timeoutSeconds, process.Pid)
+		default:
+			alive, err := IsProcessAlive(process)
+			if err != nil {
+				return fmt.Errorf("failed to check status of process %d: %w", process.Pid, err)
+			}
+			if !alive {
+				return nil
+			}
+
+			time.Sleep(interval)
+			interval = min(time.Duration(interval*2), maxInterval)
+		}
+	}
+}
+
+func terminateDarwinAdminProcess(process *os.Process, timeout int) error {
+	log.Printf("KillProcess: retrying with macOS administrator privileges for pid %d", process.Pid)
+
+	if err := runDarwinAdminShell(fmt.Sprintf("kill -INT %d", process.Pid)); err != nil {
+		return err
+	}
+	if err := waitForProcessExitWithTimeoutNoKill(process, timeout); err == nil {
+		return nil
+	} else {
+		log.Printf("KillProcess: graceful admin stop timed out for pid %d: %v", process.Pid, err)
+	}
+
+	if err := runDarwinAdminShell(fmt.Sprintf("kill -KILL %d", process.Pid)); err != nil {
+		return err
+	}
+	return waitForProcessExitWithTimeoutNoKill(process, min(timeout, 5))
+}
 
 func (a *App) Exec(path string, args []string, options ExecOptions) FlagResult {
 	log.Printf("Exec: %s %s %v", path, args, options)
@@ -64,6 +181,7 @@ func (a *App) ExecBackground(path string, args []string, outEvent string, endEve
 	exePath := resolvePath(path)
 	pidPath := ""
 	logPath := ""
+	useDarwinAdmin := options.Admin && sysruntime.GOOS == "darwin"
 
 	if _, err := os.Stat(exePath); os.IsNotExist(err) {
 		exePath = path
@@ -71,19 +189,12 @@ func (a *App) ExecBackground(path string, args []string, outEvent string, endEve
 
 	if options.PidFile != "" {
 		pidPath = resolvePath(options.PidFile)
+		if err := os.MkdirAll(filepath.Dir(pidPath), os.ModePerm); err != nil {
+			return FlagResult{false, err.Error()}
+		}
 	}
 
-	done := make(chan struct{})
-	cmd := exec.Command(exePath, args...)
-	SetCmdWindowHidden(cmd)
-
-	cmd.Dir = options.WorkingDirectory
-	cmd.Env = os.Environ()
-
-	for key, value := range options.Env {
-		cmd.Env = append(cmd.Env, key+"="+value)
-	}
-
+	var cmd *exec.Cmd
 	var stdout io.ReadCloser
 	var err error
 	var logFile *os.File
@@ -95,16 +206,36 @@ func (a *App) ExecBackground(path string, args []string, outEvent string, endEve
 			return FlagResult{false, err.Error()}
 		}
 
-		logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-		if err != nil {
-			return FlagResult{false, err.Error()}
+		if useDarwinAdmin {
+			if err := os.WriteFile(logPath, nil, 0644); err != nil {
+				return FlagResult{false, err.Error()}
+			}
+		} else {
+			logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+			if err != nil {
+				return FlagResult{false, err.Error()}
+			}
+			defer logFile.Close()
+
+			cmd = exec.Command(exePath, args...)
+			SetCmdWindowHidden(cmd)
+			cmd.Dir = options.WorkingDirectory
+			cmd.Env = os.Environ()
+			for key, value := range options.Env {
+				cmd.Env = append(cmd.Env, key+"="+value)
+			}
+			cmd.Stdout = logFile
+			cmd.Stderr = logFile
 		}
-		defer logFile.Close()
 
-		cmd.Stdout = logFile
-		cmd.Stderr = logFile
-
-	case outEvent != "":
+	case outEvent != "" && !useDarwinAdmin:
+		cmd = exec.Command(exePath, args...)
+		SetCmdWindowHidden(cmd)
+		cmd.Dir = options.WorkingDirectory
+		cmd.Env = os.Environ()
+		for key, value := range options.Env {
+			cmd.Env = append(cmd.Env, key+"="+value)
+		}
 		stdout, err = cmd.StdoutPipe()
 		if err != nil {
 			return FlagResult{false, err.Error()}
@@ -112,13 +243,32 @@ func (a *App) ExecBackground(path string, args []string, outEvent string, endEve
 		cmd.Stderr = cmd.Stdout
 	}
 
+	if useDarwinAdmin {
+		log.Printf("ExecBackground: using macOS administrator privileges for %s", exePath)
+		if outEvent != "" && logPath == "" {
+			return FlagResult{false, "admin background execution requires LogFile"}
+		}
+		cmd = buildDarwinAdminCommand(exePath, args, options, pidPath, logPath)
+	}
+
+	if cmd == nil {
+		cmd = exec.Command(exePath, args...)
+		SetCmdWindowHidden(cmd)
+		cmd.Dir = options.WorkingDirectory
+		cmd.Env = os.Environ()
+		for key, value := range options.Env {
+			cmd.Env = append(cmd.Env, key+"="+value)
+		}
+	}
+
+	done := make(chan struct{})
 	if err := cmd.Start(); err != nil {
 		return FlagResult{false, err.Error()}
 	}
 
 	pid := strconv.Itoa(cmd.Process.Pid)
 
-	if pidPath != "" {
+	if pidPath != "" && !useDarwinAdmin {
 		if err := os.WriteFile(pidPath, []byte(pid), os.ModePerm); err != nil {
 			_ = SendExitSignal(cmd.Process)
 			_ = waitForProcessExitWithTimeout(cmd.Process, 10)
@@ -251,6 +401,12 @@ func (a *App) KillProcess(pid int, timeout int) FlagResult {
 
 	if err := SendExitSignal(process); err != nil {
 		log.Printf("SendExitSignal Err: %s", err.Error())
+		if sysruntime.GOOS == "darwin" && isPermissionDenied(err) {
+			if err := terminateDarwinAdminProcess(process, timeout); err != nil {
+				return FlagResult{false, err.Error()}
+			}
+			return FlagResult{true, "Success"}
+		}
 	}
 
 	if err := waitForProcessExitWithTimeout(process, timeout); err != nil {

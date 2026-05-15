@@ -12,7 +12,15 @@ import {
   initWebsocket,
   destroyWebsocket,
 } from '@/api/kernel'
-import { ProcessInfo, KillProcess, ExecBackground, ReadFile, RemoveFile } from '@/bridge'
+import {
+  ProcessInfo,
+  KillProcess,
+  ExecBackground,
+  ReadFile,
+  RemoveFile,
+  WindowSetTitle,
+  HttpHead,
+} from '@/bridge'
 import {
   CoreConfigFilePath,
   CoreLogFilePath,
@@ -41,7 +49,10 @@ import {
   getKernelRuntimeEnv,
   getKernelExecutablePath,
   eventBus,
+  APP_TITLE,
+  APP_VERSION,
 } from '@/utils'
+import i18n from '@/lang'
 
 import type { CoreApiConfig, CoreApiProxy } from '@/types/kernel'
 
@@ -75,19 +86,67 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
   let runtimeProfile: IProfile | undefined
 
   const proxies = ref<Record<string, CoreApiProxy>>({})
+  const tunMode = computed({
+    get: () => appSettingsStore.app.kernel.tunMode,
+    set: (value: boolean) => {
+      appSettingsStore.app.kernel.tunMode = value
+    },
+  })
 
-  const refreshConfig = async () => {
-    const _config = await getConfigs()
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-    config.value = {
-      ..._config,
-      tun: config.value.tun,
+  const hasTunInbound = (profile?: IProfile) =>
+    !!profile?.inbounds.find((inbound) => inbound.type === Inbound.Tun)
+
+  const getControllerEndpoint = (profile?: IProfile) => {
+    const defaultHost = appSettingsStore.app.mixInboundIP || '127.0.0.1'
+    const defaultController = `${defaultHost}:20123`
+    const controller = profile?.experimental?.clash_api?.external_controller || defaultController
+    const [rawHost = defaultHost, rawPort = '20123'] = controller.split(':')
+    const host = rawHost && !['0.0.0.0', '::'].includes(rawHost) ? rawHost : defaultHost
+    const port = Number(rawPort) || 20123
+    return { host, port, url: `http://${host}:${port}` }
+  }
+
+  const isControllerReachable = async (url: string) => {
+    try {
+      await HttpHead(url, {}, { Timeout: 1, Proxy: '' })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const waitForControllerReleased = async (profile?: IProfile, timeout = 2_500) => {
+    const { url } = getControllerEndpoint(profile)
+    const deadline = Date.now() + timeout
+
+    while (Date.now() < deadline) {
+      const reachable = await isControllerReachable(url)
+      if (!reachable) return true
+      await sleep(250)
     }
 
-    if (!runtimeProfile) {
+    return !(await isControllerReachable(url))
+  }
+
+  const isControllerBusyError = (error: unknown) =>
+    /address already in use|eaddrinuse/i.test(String(error))
+
+  const applyTunModeToProfile = (profile: IProfile) => {
+    const tunInbound = profile.inbounds.find((inbound) => inbound.type === Inbound.Tun)
+    if (tunInbound) {
+      tunInbound.enable = tunMode.value
+    }
+  }
+
+  const ensureRuntimeProfile = async () => {
+    if (runtimeProfile) return runtimeProfile
+
+    const profile = profilesStore.currentProfile
+    try {
       const txt = await ReadFile(CoreConfigFilePath)
       runtimeProfile = restoreProfile(JSON.parse(txt))
-      const profile = profilesStore.currentProfile
       if (profile) {
         const _profile = deepClone(profile)
         _profile.inbounds.forEach((inbound) => {
@@ -107,7 +166,28 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
         runtimeProfile.mixin = _profile.mixin
         runtimeProfile.script = _profile.script
       }
+    } catch {
+      runtimeProfile = profile ? deepClone(profile) : undefined
     }
+
+    return runtimeProfile
+  }
+
+  const readCorePid = async (fallback = -1) => {
+    const pid = await ReadFile(CorePidFilePath).catch(() => String(fallback))
+    return Number(pid) || fallback
+  }
+
+  const refreshConfig = async () => {
+    const _config = await getConfigs()
+
+    config.value = {
+      ..._config,
+      tun: config.value.tun,
+    }
+
+    await ensureRuntimeProfile()
+    if (!runtimeProfile) return
 
     const mixed = runtimeProfile.inbounds.find((v) => v.enable && v.mixed)
     const http = runtimeProfile.inbounds.find((v) => v.enable && v.http)
@@ -129,6 +209,25 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     config.value['interface-name'] = runtimeProfile.route.default_interface
   }
 
+  const setTunMode = async (enable: boolean, restartIfRunning = false) => {
+    const profile = runtimeProfile || profilesStore.currentProfile
+    if (enable && !hasTunInbound(profile)) {
+      throw 'home.overview.needTun'
+    }
+
+    tunMode.value = enable
+    if (running.value && config.value.tun.enable !== enable) {
+      useRuntimeProfileOnNextStart = true
+      if (restartIfRunning) {
+        await restartCore(undefined, true)
+      } else {
+        suppressAutoRestart = true
+        needRestart.value = true
+      }
+    }
+    await envStore.updateSystemProxyStatus()
+  }
+
   const updateConfig = async (field: string, value: any) => {
     if (field === 'mode') {
       await setConfigs({ mode: value })
@@ -136,9 +235,17 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
       return
     }
 
+    if (field === 'tun') {
+      await setTunMode(!!value?.enable)
+      return
+    }
+
+    await ensureRuntimeProfile()
+    if (!runtimeProfile) return
+    const profile = runtimeProfile
+
     const patchInbound = () => {
-      if (!runtimeProfile) return
-      const inbound = runtimeProfile.inbounds.find(
+      const inbound = profile.inbounds.find(
         (v) =>
           (v.type === Inbound.Mixed && v.mixed?.listen.listen_port) ||
           (v.type === Inbound.Http && v.http?.listen.listen_port) ||
@@ -151,8 +258,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     }
 
     const patchInboundPort = (type: 'mixed' | 'socks' | 'http', port: number) => {
-      if (!runtimeProfile) return
-      let inbound = runtimeProfile.inbounds.find((v) => v.type === type)
+      let inbound = profile.inbounds.find((v) => v.type === type)
       if (inbound) {
         inbound[type]!.listen.listen_port = port
       } else {
@@ -165,14 +271,13 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
           enable: true,
           [type]: _type,
         }
-        runtimeProfile.inbounds.push(inbound)
+        profile.inbounds.push(inbound)
       }
       inbound.enable = port !== 0
     }
 
     const patchInboundAddress = (allowLan: boolean) => {
-      if (!runtimeProfile) return
-      runtimeProfile.inbounds.forEach((inbound) => {
+      profile.inbounds.forEach((inbound) => {
         if (inbound.type === Inbound.Tun) return
         inbound[inbound.type]!.listen.listen = allowLan
           ? '0.0.0.0'
@@ -181,9 +286,8 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     }
 
     const patchInboundListen = (ip: string) => {
-      if (!runtimeProfile) return
       appSettingsStore.app.mixInboundIP = ip
-      runtimeProfile.inbounds.forEach((inbound) => {
+      profile.inbounds.forEach((inbound) => {
         if (inbound.type === Inbound.Tun) return
         if (inbound[inbound.type]!.listen.listen !== '0.0.0.0') {
           inbound[inbound.type]!.listen.listen = ip
@@ -197,17 +301,16 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
       device: string
       interface_name: string
     }) => {
-      if (!runtimeProfile) return
-      const inbound = runtimeProfile.inbounds.find((v) => v.type === Inbound.Tun)
+      const inbound = profile.inbounds.find((v) => v.type === Inbound.Tun)
       if (!inbound) throw 'home.overview.needTun'
       options = { ...config.value.tun, ...options }
       inbound.enable = options.enable
       inbound.tun!.stack = options.stack || TunStack.Mixed
       inbound.tun!.interface_name = options.device || ''
       if (options.interface_name) {
-        runtimeProfile.route.default_interface = options.interface_name
+        profile.route.default_interface = options.interface_name
       }
-      runtimeProfile.route.auto_detect_interface = !options.interface_name
+      profile.route.auto_detect_interface = !options.interface_name
     }
 
     const fieldHandlerMap: Recordable<() => void> = {
@@ -225,13 +328,24 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
 
     fieldHandlerMap[field]?.()
 
-    await restartCore(undefined, true)
+    if (running.value) {
+      suppressAutoRestart = true
+      useRuntimeProfileOnNextStart = true
+      needRestart.value = true
+    } else {
+      await startCore(runtimeProfile)
+    }
     await envStore.updateSystemProxyStatus()
   }
 
   const refreshProviderProxies = async () => {
     const { proxies: b } = await getProxies()
     proxies.value = b
+  }
+
+  const updateWindowTitle = () => {
+    const restartSuffix = needRestart.value ? ` [${i18n.global.t('home.overview.restart')}]` : ''
+    WindowSetTitle(`${APP_TITLE} ${APP_VERSION}${restartSuffix}`)
   }
 
   /* Bridge API */
@@ -242,6 +356,8 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
   const restarting = ref(false)
   const needRestart = ref(false)
   const coreStateLoading = ref(true)
+  let suppressAutoRestart = false
+  let useRuntimeProfileOnNextStart = false
   let isCoreStartedByThisInstance = false
   let { promise: coreStoppedPromise, resolve: coreStoppedResolver } = Promise.withResolvers()
 
@@ -263,29 +379,129 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
 
   const runCoreProcess = async (isAlpha: boolean) => {
     const corePath = await getKernelExecutablePath(isAlpha)
-    return new Promise<number | void>((resolve, reject) => {
-      let output: string
-      const pid = ExecBackground(
+    const shouldStartWithTun = tunMode.value
+    const useAdminLaunch = envStore.env.os === 'darwin' && shouldStartWithTun
+    const extractCoreStartError = (content: string) => {
+      const lines = content
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+
+      const matchers = [
+        /FATAL/i,
+        /\bERROR\b/i,
+        /permission denied/i,
+        /operation not permitted/i,
+        /timed out/i,
+        /timeout/i,
+        /unexpectedly/i,
+        /failed/i,
+        /canceled/i,
+        /cancelled/i,
+      ]
+
+      for (const matcher of matchers) {
+        const matched = [...lines].reverse().find((line) => matcher.test(line))
+        if (matched) return matched
+      }
+
+      return ''
+    }
+
+    const getCoreStartError = async (fallback?: string) => {
+      const logOutput = await ReadFile(CoreLogFilePath).catch(() => '')
+      return (
+        extractCoreStartError(logOutput) ||
+        extractCoreStartError(fallback || '') ||
+        fallback ||
+        'The core exited unexpectedly'
+      )
+    }
+
+    logsStore.recordKernelLog(
+      `[gui] launch core: tunMode=${shouldStartWithTun} admin=${useAdminLaunch} os=${envStore.env.os}`,
+    )
+
+    const waitForCoreReady = async (fallbackPid: number) => {
+      let stableAliveCount = 0
+      let latestAlivePid = fallbackPid
+      const deadline = Date.now() + 10_000
+
+      while (Date.now() < deadline) {
+        const pid = await readCorePid(fallbackPid)
+        const processName = pid > 0 ? await ProcessInfo(pid).catch(() => '') : ''
+        if (processName.startsWith('sing-box')) {
+          stableAliveCount += 1
+          latestAlivePid = pid
+
+          const output = await ReadFile(CoreLogFilePath).catch(() => '')
+          if (output.includes(CoreStopOutputKeyword) || stableAliveCount >= 3) {
+            return pid
+          }
+        } else {
+          stableAliveCount = 0
+        }
+
+        await sleep(300)
+      }
+
+      if (latestAlivePid > 0) {
+        return latestAlivePid
+      }
+
+      throw await getCoreStartError('Start core timeout')
+    }
+
+    return new Promise<number>((resolve, reject) => {
+      let output = ''
+      let settled = false
+      let startedPid = -1
+
+      const resolveOnce = (pid: number) => {
+        if (settled) return
+        settled = true
+        resolve(pid)
+      }
+
+      const rejectOnce = (error: any) => {
+        if (settled) return
+        settled = true
+        reject(error)
+      }
+
+      ExecBackground(
         corePath,
         getKernelRuntimeArgs(isAlpha),
         (out) => {
           output = out
           logsStore.recordKernelLog(out)
           if (out.includes(CoreStopOutputKeyword)) {
-            resolve(pid)
+            readCorePid(startedPid)
+              .then((pid) => resolveOnce(pid > 0 ? pid : startedPid))
+              .catch(() => resolveOnce(startedPid))
           }
         },
         () => {
-          onCoreStopped()
-          reject(output)
+          void getCoreStartError(output).then((error) => {
+            onCoreStopped()
+            rejectOnce(error)
+          })
         },
         {
           PidFile: CorePidFilePath,
           LogFile: CoreLogFilePath,
           StopOutputKeyword: CoreStopOutputKeyword,
           Env: getKernelRuntimeEnv(isAlpha),
+          Admin: useAdminLaunch,
         },
-      ).catch((e) => reject(e))
+      )
+        .then((pid) => {
+          startedPid = pid
+          waitForCoreReady(pid)
+            .then(resolveOnce)
+            .catch(rejectOnce)
+        })
+        .catch(rejectOnce)
     })
   }
 
@@ -293,6 +509,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     corePid.value = pid
     running.value = true
     needRestart.value = false
+    useRuntimeProfileOnNextStart = false
     isCoreStartedByThisInstance = true
     coreStoppedPromise = new Promise((r) => (coreStoppedResolver = r))
 
@@ -315,6 +532,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     corePid.value = -1
     running.value = false
     needRestart.value = false
+    useRuntimeProfileOnNextStart = false
 
     destroyWebsocket()
 
@@ -327,14 +545,45 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     coreStoppedResolver(null)
   }
 
+  const waitForCoreStopped = async () => {
+    if (!isCoreStartedByThisInstance) {
+      await onCoreStopped()
+      return
+    }
+
+    const result = await Promise.race([
+      coreStoppedPromise.then(() => 'event'),
+      sleep(1_500).then(() => 'timeout'),
+    ])
+    if (result === 'event') return
+
+    const processName = corePid.value > 0 ? await ProcessInfo(corePid.value).catch(() => '') : ''
+    if (!processName.startsWith('sing-box')) {
+      await onCoreStopped()
+      return
+    }
+
+    throw 'Failed to stop core process'
+  }
+
   const startCore = async (_profile?: IProfile) => {
     if (running.value) throw 'The core is already running'
 
     logsStore.clearKernelLog()
+    await Promise.all([
+      RemoveFile(CorePidFilePath).catch(() => undefined),
+      RemoveFile(CoreLogFilePath).catch(() => undefined),
+    ])
 
     const { profile: profileID, branch } = appSettingsStore.app.kernel
-    const profile = _profile || profilesStore.getProfileById(profileID)
-    if (!profile) throw 'Choose a profile first'
+    const sourceProfile = _profile || profilesStore.getProfileById(profileID)
+    if (!sourceProfile) throw 'Choose a profile first'
+
+    const profile = deepClone(sourceProfile)
+    if (tunMode.value && !hasTunInbound(profile)) {
+      throw 'home.overview.needTun'
+    }
+    applyTunModeToProfile(profile)
 
     if (!_profile) {
       runtimeProfile = undefined
@@ -360,7 +609,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     try {
       await pluginsStore.onBeforeCoreStopTrigger()
       await KillProcess(corePid.value)
-      await (isCoreStartedByThisInstance ? coreStoppedPromise : onCoreStopped())
+      await waitForCoreStopped()
     } finally {
       stopping.value = false
     }
@@ -369,9 +618,26 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
   const restartCore = async (cleanupTask?: () => Promise<any>, keepRuntimeProfile = false) => {
     restarting.value = true
     try {
+      const shouldKeepRuntimeProfile = keepRuntimeProfile || useRuntimeProfileOnNextStart
+      const activeProfile = runtimeProfile || profilesStore.currentProfile
+      const switchingOffTun = config.value.tun.enable && !tunMode.value
       await stopCore()
+      if (switchingOffTun) {
+        // Give macOS a moment to fully release the previous TUN runtime artifacts.
+        await sleep(600)
+      }
+      await waitForControllerReleased(activeProfile)
       await cleanupTask?.()
-      await startCore(keepRuntimeProfile ? runtimeProfile : undefined)
+      try {
+        await startCore(shouldKeepRuntimeProfile ? runtimeProfile : undefined)
+      } catch (error) {
+        if (!isControllerBusyError(error)) throw error
+
+        logsStore.recordKernelLog(`[gui] restart retry after controller is still busy: ${String(error)}`)
+        await sleep(900)
+        await waitForControllerReleased(activeProfile, 3_000)
+        await startCore(shouldKeepRuntimeProfile ? runtimeProfile : undefined)
+      }
     } finally {
       needRestart.value = false
       restarting.value = false
@@ -467,14 +733,30 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     }
   })
 
-  watch(needRestart, (v) => {
-    if (v && appSettingsStore.app.autoRestartKernel) {
-      restartCore()
-    }
-  })
+  watch(
+    needRestart,
+    (v, oldV) => {
+      updateWindowTitle()
+      if (v && !oldV && running.value) {
+        message.info('home.overview.manualRestartCore', 5_000)
+      }
+      if (!v) {
+        suppressAutoRestart = false
+        return
+      }
+      if (suppressAutoRestart) {
+        suppressAutoRestart = false
+        return
+      }
+      if (appSettingsStore.app.autoRestartKernel) {
+        restartCore()
+      }
+    },
+    { immediate: true },
+  )
 
   const watchSources = computed(() => {
-    const source = [config.value.mode, config.value.tun.enable]
+    const source = [config.value.mode, config.value.tun.enable, tunMode.value, needRestart.value]
     if (!appSettingsStore.app.addGroupToMenu) return source.join('')
 
     const { unAvailable, sortByDelay } = appSettingsStore.app.kernel
@@ -493,6 +775,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     startCore,
     stopCore,
     restartCore,
+    setTunMode,
     initCoreState,
     pid: corePid,
     running,
@@ -502,6 +785,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     needRestart,
     coreStateLoading,
     config,
+    tunMode,
     proxies,
     refreshConfig,
     updateConfig,

@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { DraggableOptions } from '@/constant/app'
@@ -10,13 +11,42 @@ import {
   DefaultInboundTun,
 } from '@/constant/profile'
 import { Inbound } from '@/enums/kernel'
-import { useAppSettingsStore } from '@/stores'
+import { useAppSettingsStore, useKernelApiStore } from '@/stores'
 import { picker, sampleID } from '@/utils'
 
 const model = defineModel<IProfile['inbounds']>({ required: true })
 
 const { t } = useI18n()
 const appSettings = useAppSettingsStore()
+const kernelApiStore = useKernelApiStore()
+
+const syncTunInboundEnable = (enable: boolean) => {
+  model.value.forEach((inbound) => {
+    if (inbound.type === Inbound.Tun) {
+      inbound.enable = enable
+    }
+  })
+}
+
+const handleInboundEnableChange = (inbound: IProfile['inbounds'][number], enable: boolean) => {
+  if (inbound.type !== Inbound.Tun) {
+    inbound.enable = enable
+    return
+  }
+
+  appSettings.app.kernel.tunMode = enable
+  syncTunInboundEnable(enable)
+
+  if (kernelApiStore.running && kernelApiStore.config.tun.enable !== enable) {
+    kernelApiStore.needRestart = true
+  }
+}
+
+watch(
+  () => appSettings.app.kernel.tunMode,
+  (enable) => syncTunInboundEnable(enable),
+  { immediate: true },
+)
 
 const handleDelete = (index: number) => {
   model.value.splice(index, 1)
@@ -101,7 +131,10 @@ defineExpose({ handleAdd })
       </template>
       <div class="form-item">
         {{ t('kernel.inbounds.enable') }}
-        <Switch v-model="inbound.enable" />
+        <Switch
+          :model-value="inbound.type === Inbound.Tun ? appSettings.app.kernel.tunMode : inbound.enable"
+          @update:model-value="(value) => handleInboundEnableChange(inbound, value)"
+        />
       </div>
       <div class="form-item">
         {{ t('kernel.inbounds.tag') }}
