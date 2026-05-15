@@ -77,7 +77,11 @@ onUnmounted(() => window.removeEventListener('resize', onResize))
 </script>
 
 <template>
-  <div v-menu="menus" class="flex items-center py-8 gap-8 px-12" style="--wails-draggable: drag">
+  <div
+    v-menu="menus"
+    class="flex items-start py-8 gap-8 px-12"
+    style="--wails-draggable: drag"
+  >
     <img v-if="!isDarwin" class="w-24 h-24" draggable="false" :src="logo" />
 
     <div
@@ -89,39 +93,48 @@ onUnmounted(() => window.removeEventListener('resize', onResize))
             ? 'var(--primary-color)'
             : 'var(--color)',
       }"
-      class="font-bold w-full h-full flex items-center"
+      class="font-bold w-full h-full flex flex-col"
       @dblclick="WindowToggleMaximise"
     >
-      {{ APP_TITLE }} {{ APP_VERSION }}
-      <span
-        v-if="kernelApiStore.needRestart"
-        class="ml-8 px-8 py-2 rounded-full text-12"
-        style="background: #fff1f0; color: #cf1322; line-height: 1"
-      >
-        {{ $t('home.overview.restart') }}
-      </span>
-      <div class="ml-8 flex items-center gap-4" style="--wails-draggable: disabled">
-        <Tag v-if="kernelApiStore.needRestart" color="orange" size="small">
-          {{ $t('settings.needRestart') }}
-        </Tag>
-        <Button
+      <div class="w-full flex items-center" :class="isDarwin ? 'justify-center' : ''">
+        {{ APP_TITLE }} {{ APP_VERSION }}
+        <span
           v-if="kernelApiStore.needRestart"
-          size="small"
-          type="primary"
-          class="font-bold"
-          style="background: #cf1322; border-color: #cf1322; color: #fff"
-          @click.stop="handleRestartKernel"
+          class="ml-8 px-8 py-2 rounded-full text-12"
+          style="background: #fff1f0; color: #cf1322; line-height: 1"
         >
           {{ $t('home.overview.restart') }}
-        </Button>
-        <CustomAction :actions="appStore.customActions.title_bar" />
+        </span>
+        <div class="ml-8 flex items-center gap-4" style="--wails-draggable: disabled">
+          <Tag v-if="kernelApiStore.needRestart" color="orange" size="small">
+            {{ $t('settings.needRestart') }}
+          </Tag>
+          <Button
+            v-if="kernelApiStore.needRestart"
+            size="small"
+            type="primary"
+            class="font-bold"
+            style="background: #cf1322; border-color: #cf1322; color: #fff"
+            @click.stop="handleRestartKernel"
+          >
+            {{ $t('home.overview.restart') }}
+          </Button>
+          <CustomAction :actions="appStore.customActions.title_bar" />
+        </div>
+        <Icon
+          v-if="kernelApiStore.starting || kernelApiStore.stopping || kernelApiStore.restarting"
+          :size="14"
+          icon="loading"
+          class="rotation mx-4"
+        />
       </div>
-      <Icon
-        v-if="kernelApiStore.starting || kernelApiStore.stopping || kernelApiStore.restarting"
-        :size="14"
-        icon="loading"
-        class="rotation mx-4"
-      />
+      <div
+        v-if="kernelApiStore.needRestart && kernelApiStore.restartPromptSource === 'tray'"
+        class="mt-6 w-full rounded px-12 py-6 text-center text-12"
+        style="background: #cf1322; color: #fff; --wails-draggable: disabled"
+      >
+        {{ $t('home.overview.restartFromTray') }}
+      </div>
     </div>
 
     <div

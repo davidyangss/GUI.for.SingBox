@@ -133,6 +133,36 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
   const isControllerBusyError = (error: unknown) =>
     /address already in use|eaddrinuse/i.test(String(error))
 
+  const startCoreWithRetryOnBusy = async (
+    profile: IProfile | undefined,
+    controllerProfile: IProfile | undefined,
+  ) => {
+    const delays = [0, 800, 1_400, 2_200]
+    let lastError: unknown
+
+    for (const [index, delay] of delays.entries()) {
+      if (delay > 0) {
+        logsStore.recordKernelLog(
+          `[gui] restart retry #${index} after controller bind is still busy, waiting ${delay}ms`,
+        )
+        await sleep(delay)
+        await waitForControllerReleased(controllerProfile, 4_500)
+      }
+
+      try {
+        await startCore(profile)
+        return
+      } catch (error) {
+        lastError = error
+        if (!isControllerBusyError(error) || index === delays.length - 1) {
+          throw error
+        }
+      }
+    }
+
+    throw lastError
+  }
+
   const applyTunModeToProfile = (profile: IProfile) => {
     const tunInbound = profile.inbounds.find((inbound) => inbound.type === Inbound.Tun)
     if (tunInbound) {
@@ -355,6 +385,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
   const stopping = ref(false)
   const restarting = ref(false)
   const needRestart = ref(false)
+  const restartPromptSource = ref<'default' | 'tray'>('default')
   const coreStateLoading = ref(true)
   let suppressAutoRestart = false
   let useRuntimeProfileOnNextStart = false
@@ -509,6 +540,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     corePid.value = pid
     running.value = true
     needRestart.value = false
+    restartPromptSource.value = 'default'
     useRuntimeProfileOnNextStart = false
     isCoreStartedByThisInstance = true
     coreStoppedPromise = new Promise((r) => (coreStoppedResolver = r))
@@ -532,6 +564,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     corePid.value = -1
     running.value = false
     needRestart.value = false
+    restartPromptSource.value = 'default'
     useRuntimeProfileOnNextStart = false
 
     destroyWebsocket()
@@ -628,20 +661,21 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
       }
       await waitForControllerReleased(activeProfile)
       await cleanupTask?.()
-      try {
-        await startCore(shouldKeepRuntimeProfile ? runtimeProfile : undefined)
-      } catch (error) {
-        if (!isControllerBusyError(error)) throw error
-
-        logsStore.recordKernelLog(`[gui] restart retry after controller is still busy: ${String(error)}`)
-        await sleep(900)
-        await waitForControllerReleased(activeProfile, 3_000)
-        await startCore(shouldKeepRuntimeProfile ? runtimeProfile : undefined)
-      }
+      await startCoreWithRetryOnBusy(
+        shouldKeepRuntimeProfile ? runtimeProfile : undefined,
+        activeProfile,
+      )
     } finally {
       needRestart.value = false
+      restartPromptSource.value = 'default'
       restarting.value = false
     }
+  }
+
+  const emphasizeRestartPrompt = (source: 'default' | 'tray' = 'default') => {
+    if (!needRestart.value) return
+    restartPromptSource.value = source
+    updateWindowTitle()
   }
 
   const getProxyPort = ():
@@ -741,6 +775,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
         message.info('home.overview.manualRestartCore', 5_000)
       }
       if (!v) {
+        restartPromptSource.value = 'default'
         suppressAutoRestart = false
         return
       }
@@ -783,6 +818,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     stopping,
     restarting,
     needRestart,
+    restartPromptSource,
     coreStateLoading,
     config,
     tunMode,
@@ -791,6 +827,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     updateConfig,
     refreshProviderProxies,
     getProxyPort,
+    emphasizeRestartPrompt,
 
     onLogs,
     onMemory,

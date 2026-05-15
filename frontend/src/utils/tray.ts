@@ -6,6 +6,7 @@ import {
   ShowMainWindow,
   UpdateTrayAndMenus,
 } from '@/bridge'
+import { nextTick } from 'vue'
 import { ColorOptions, ThemeOptions } from '@/constant/app'
 import { ModeOptions } from '@/constant/kernel'
 import { OS } from '@/enums/app'
@@ -85,14 +86,23 @@ const runTrayAction = async (
   options: {
     showWindow?: boolean
     successMessage?: string
+    emphasizeRestartPrompt?: boolean
   } = {},
 ) => {
-  const { showWindow = false, successMessage } = options
+  const kernelApiStore = useKernelApiStore()
+  const { showWindow = false, successMessage, emphasizeRestartPrompt = false } = options
   try {
     if (showWindow) {
       await ShowMainWindow().catch(() => undefined)
     }
     await action()
+    if (emphasizeRestartPrompt) {
+      kernelApiStore.emphasizeRestartPrompt('tray')
+    }
+    if (showWindow) {
+      await nextTick()
+      await ShowMainWindow().catch(() => undefined)
+    }
     if (successMessage) {
       message.info(successMessage, 5_000)
     }
@@ -301,6 +311,7 @@ const getTrayMenus = () => {
             runTrayAction(() => kernelApiStore.updateConfig('tun', { enable: true }), {
               showWindow: true,
               successMessage: 'home.overview.manualRestartCore',
+              emphasizeRestartPrompt: true,
             }),
         },
         {
@@ -311,6 +322,7 @@ const getTrayMenus = () => {
             runTrayAction(() => kernelApiStore.updateConfig('tun', { enable: false }), {
               showWindow: true,
               successMessage: 'home.overview.manualRestartCore',
+              emphasizeRestartPrompt: true,
             }),
         },
       ],

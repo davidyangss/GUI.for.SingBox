@@ -304,12 +304,13 @@ Fix:
 
 - derive the current `external_controller` endpoint from the active profile
 - after `stopCore()`, poll the controller URL until it becomes unreachable or timeout expires
-- if startup still fails with `address already in use`, sleep briefly and retry startup once
+- if startup still fails with `address already in use`, retry startup with short backoff delays instead of a single retry
 - change window title suffix from `重启生效` to `重启核心`
 - show a stronger title-bar prompt by:
   - tinting the title bar red
   - injecting `重启核心` directly into the title text
   - upgrading the restart button to a more prominent primary action
+  - showing a dedicated tray-origin banner when `tun` was changed from the tray menu
 
 Key files:
 
@@ -343,6 +344,7 @@ Key files:
 
 - tray `启用/禁用 tun` changes the same persisted `tunMode`
 - tray `启用/禁用 tun` shows the main window first so title-bar `重启生效` becomes visible immediately
+- tray `启用/禁用 tun` re-shows the main window after state update so the latest title-bar restart prompt is visible
 - tray action errors are caught and surfaced more clearly
 - tray can show window around important `tun` actions
 
@@ -360,7 +362,7 @@ Key files:
 ### Restart timing behavior
 
 - restart waits briefly for the previous `external_controller` listener to disappear
-- if startup still hits `address already in use`, frontend retries once after a short delay
+- if startup still hits `address already in use`, frontend retries with bounded backoff delays
 
 ---
 
@@ -409,7 +411,7 @@ When upstream changes these areas, re-check and reapply this feature set in roug
 7. `kernelApi.ts` stop/restart flow
    - confirm `waitForCoreStopped()` or equivalent fallback still exists
    - confirm restart does not block forever if stop event is missing but process is already dead
-   - confirm restart still waits for controller release and retries once on `address already in use`
+   - confirm restart still waits for controller release and retries with bounded backoff on `address already in use`
 
 ---
 
@@ -450,6 +452,7 @@ Check these scenarios:
 4. disable `tun` then restart
    - new startup becomes non-`tun`
    - title bar clearly shows `重启核心` after tray `禁用 tun`
+   - tray-origin restart reminder is visually stronger than the generic restart-required state
 5. app relaunch
    - previous `tunMode` persists
 6. startup failure
@@ -518,12 +521,13 @@ Check:
 Likely cause:
 
 - stale pid/log files, delayed release of previous TUN resources, or delayed release of the previous `external_controller` listener
+- a single retry window may still be too short for macOS to allow rebinding the same controller port
 
 Check:
 
 - startup cleanup of `CorePidFilePath` and `CoreLogFilePath`
 - post-stop cooldown when switching off `tun`
-- controller release polling / one-time retry in `restartCore()`
+- controller release polling / bounded retry backoff in `restartCore()`
 
 ### Symptom: popup shows harmless `INFO[...]` as startup error
 
