@@ -19,6 +19,7 @@ import { useModal } from '@/components/Modal'
 
 import type { Menu, Subscription } from '@/types/app'
 
+import ImportClientConfig from './components/ImportClientConfig.vue'
 import ProxiesEditor from './components/ProxiesEditor.vue'
 import ProxiesView from './components/ProxiesView.vue'
 import SubscribeForm from './components/SubscribeForm.vue'
@@ -112,6 +113,14 @@ const handleShowSubForm = (id?: string) => {
   modalApi.setContent(SubscribeForm, { id }).open()
 }
 
+const handleImportClientConfig = () => {
+  modalApi.setProps({
+    title: 'importClientConfig.title',
+    minWidth: '70',
+  })
+  modalApi.setContent(ImportClientConfig, {}).open()
+}
+
 const handleUpdateSubs = async () => {
   try {
     await subscribeStore.updateSubscribes()
@@ -177,7 +186,10 @@ const onSortUpdate = debounce(subscribeStore.saveSubscribes, 1000)
             <Button type="link" @click="handleShowSubForm()">{{ t('common.add') }}</Button>
           </template>
         </I18nT>
-        <div class="flex items-center">
+        <div class="flex items-center gap-8">
+          <Button type="link" @click="handleImportClientConfig">
+            {{ t('importClientConfig.title') }}
+          </Button>
           <CustomAction :actions="appStore.customActions.subscriptions_header" />
         </div>
       </template>
@@ -193,6 +205,9 @@ const onSortUpdate = debounce(subscribeStore.saveSubscribes, 1000)
       @click="handleUpdateSubs"
     >
       {{ t('common.updateAll') }}
+    </Button>
+    <Button type="link" @click="handleImportClientConfig">
+      {{ t('common.import') }}
     </Button>
     <Button type="primary" icon="add" class="ml-16" @click="handleShowSubForm()">
       {{ t('common.add') }}

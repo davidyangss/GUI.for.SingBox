@@ -1,6 +1,6 @@
 import { parse } from 'yaml'
 
-import { ReadFile, WriteFile } from '@/bridge'
+import { ReadFile, ReadDir, WriteFile } from '@/bridge'
 import { CoreConfigFilePath } from '@/constant/kernel'
 import { Branch } from '@/enums/app'
 import {
@@ -95,9 +95,29 @@ const generateInbounds = (inbounds: IInbound[]) => {
   })
 }
 
+const _resolveOrphanSubscription = async (
+  subId: string,
+  orphanCache: Recordable<any[]>,
+): Promise<any[] | undefined> => {
+  if (orphanCache[subId]) return orphanCache[subId]
+  try {
+    const files = await ReadDir('data/subscribes')
+    const file = files.find((f) => f.name === subId + '.json')
+    if (!file) return undefined
+    const content = await ReadFile('data/subscribes/' + file.name)
+    const proxies = JSON.parse(content)
+    if (!Array.isArray(proxies) || proxies.length === 0) return undefined
+    orphanCache[subId] = proxies
+    return proxies
+  } catch {
+    return undefined
+  }
+}
+
 const generateOutbounds = async (outbounds: IOutbound[]) => {
   const result: Recordable[] = []
   const SubscriptionCache: Recordable<any[]> = {}
+  const orphanCache: Recordable<any[]> = {}
   const proxiesSet = new Set<any>()
   const builtInProxiesSet = new Set<string>()
 
@@ -131,15 +151,22 @@ const generateOutbounds = async (outbounds: IOutbound[]) => {
               const subStr = await ReadFile(sub.path)
               const proxies = JSON.parse(subStr)
               SubscriptionCache[subId] = proxies
+            } else {
+              const orphanProxies = await _resolveOrphanSubscription(subId, orphanCache)
+              if (orphanProxies) {
+                SubscriptionCache[subId] = orphanProxies
+              }
             }
           }
+          const cached = SubscriptionCache[subId]
+          if (!cached) continue
           if (proxy.type === 'Subscription') {
             _outbound.outbounds.push(
-              ...SubscriptionCache[subId]!.map((v) => v.tag).filter((tag) => isTagMatching(tag)),
+              ...cached.map((v) => v.tag).filter((tag) => isTagMatching(tag)),
             )
-            SubscriptionCache[subId]!.forEach((v) => proxiesSet.add(v))
+            cached.forEach((v) => proxiesSet.add(v))
           } else {
-            const _proxy = SubscriptionCache[subId]!.find((v) => v.tag === proxy.tag)
+            const _proxy = cached.find((v) => v.tag === proxy.tag)
             if (_proxy && isTagMatching(_proxy.tag)) {
               _outbound.outbounds.push(_proxy.tag)
               proxiesSet.add(_proxy)

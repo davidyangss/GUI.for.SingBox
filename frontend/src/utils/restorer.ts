@@ -112,9 +112,14 @@ export const restoreProfile = (
 
 const restoreExperimental = (raw: Recordable, OutboundsIds: Recordable): IExperimental => {
   const template = Defaults.DefaultExperimental()
+  if (!raw) return template
   const experimental = deepAssign(template, raw)
-  experimental.clash_api.external_ui_download_detour =
-    OutboundsIds[raw.clash_api?.external_ui_download_detour] || ''
+  if (experimental.clash_api && raw.clash_api) {
+    experimental.clash_api.external_ui_download_detour =
+      OutboundsIds[raw.clash_api.external_ui_download_detour] || ''
+  } else {
+    experimental.clash_api = {}
+  }
   return experimental
 }
 

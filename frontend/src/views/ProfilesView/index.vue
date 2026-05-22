@@ -18,6 +18,7 @@ import { useModal } from '@/components/Modal'
 
 import type { Menu } from '@/types/app'
 
+import ImportClientConfig from '@/views/SubscribesView/components/ImportClientConfig.vue'
 import ProfileEditor from './components/ProfileEditor.vue'
 import ProfileForm from './components/ProfileForm.vue'
 
@@ -170,6 +171,14 @@ const handleShowProfileForm = (id?: string, step = 0) => {
   modalApi.setContent(ProfileForm, { id, step }).open()
 }
 
+const handleImportClientConfig = () => {
+  modalApi.setProps({
+    title: 'importClientConfig.title',
+    minWidth: '70',
+  })
+  modalApi.setContent(ImportClientConfig, {}).open()
+}
+
 const handleDeleteProfile = async (p: IProfile) => {
   const { profile } = appSettingsStore.app.kernel
   if (profile === p.id && kernelApiStore.running) {
@@ -213,7 +222,10 @@ const onSortUpdate = debounce(profilesStore.saveProfiles, 1000)
             <Button type="link" @click="handleShowProfileForm()">{{ t('common.add') }}</Button>
           </template>
         </I18nT>
-        <div class="flex items-center">
+        <div class="flex items-center gap-8">
+          <Button type="link" @click="handleImportClientConfig">
+            {{ t('importClientConfig.title') }}
+          </Button>
           <CustomAction :actions="appStore.customActions.profiles_header" />
         </div>
       </template>
@@ -223,6 +235,9 @@ const onSortUpdate = debounce(profilesStore.saveProfiles, 1000)
   <div v-else class="grid-list-header">
     <Radio v-model="appSettingsStore.app.profilesView" :options="ViewOptions" class="mr-auto" />
     <CustomAction :actions="appStore.customActions.profiles_header" />
+    <Button type="link" @click="handleImportClientConfig">
+      {{ t('common.import') }}
+    </Button>
     <Button type="primary" icon="add" @click="handleShowProfileForm()">
       {{ t('common.add') }}
     </Button>
