@@ -77,6 +77,7 @@ export interface AppSettings {
   systemProxyServices: string[]
   systemProxyDNS: string
   systemDefaultDNS: string
+  mixInboundIP: string
   autoStartKernel: boolean
   autoRestartKernel: boolean
   userAgent: string

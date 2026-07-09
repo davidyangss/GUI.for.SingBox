@@ -58,11 +58,12 @@ export const useEnvStore = defineStore('env', () => {
         `socks=${server}`,
       ]
       if (proxyType === 'mixed') {
+        const mixIP = appSettings.app.mixInboundIP || '126.0.0.1'
         proxyServerList.push(
-          `http://127.0.0.1:${port}`,
-          `https://127.0.0.1:${port}`,
-          `socks5://127.0.0.1:${port}`,
-          `socks=127.0.0.1:${port}`,
+          `http://${mixIP}:${port}`,
+          `https://${mixIP}:${port}`,
+          `socks5://${mixIP}:${port}`,
+          `socks=${mixIP}:${port}`,
         )
       }
       systemProxy.value = proxyServerList.includes(proxyServer)

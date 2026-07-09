@@ -58,7 +58,7 @@ export const DefaultLog = (): ILog => ({
 
 export const DefaultExperimental = (): IExperimental => ({
   clash_api: {
-    external_controller: '127.0.0.1:20123',
+    external_controller: '126.0.0.1:20123',
     external_ui: '',
     external_ui_download_url: '',
     external_ui_download_detour: DefaultOutboundIds.Direct,
@@ -99,9 +99,9 @@ export const DefaultInboundHttp = (): NonNullable<IInbound['http']> => ({
   users: [],
 })
 
-export const DefaultInboundMixed = (): NonNullable<IInbound['mixed']> => ({
+export const DefaultInboundMixed = (listen = '126.0.0.1'): NonNullable<IInbound['mixed']> => ({
   listen: {
-    listen: '127.0.0.1',
+    listen,
     listen_port: 20122,
     tcp_fast_open: false,
     tcp_multi_path: false,

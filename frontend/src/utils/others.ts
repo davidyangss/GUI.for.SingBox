@@ -420,7 +420,7 @@ export const normalizeRequestProxy = (proxy: string) => {
 
 export const normalizeProxyHost = (host: string) => {
   if (!host || ['0.0.0.0', '::', '[::]'].includes(host)) {
-    return '127.0.0.1'
+    return useAppSettingsStore().app.mixInboundIP || '126.0.0.1'
   }
   return host
 }

@@ -71,6 +71,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     port: 0,
     'mixed-port': 0,
     'socks-port': 0,
+    'mix-inbound-ip': '',
     'interface-name': '',
     'allow-lan': false,
     mode: '',
@@ -135,6 +136,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     config.value.tun.device = tun?.tun?.interface_name || ''
     config.value.tun.stack = tun?.tun?.stack || ''
     config.value['interface-name'] = runtimeProfile.route.default_interface
+    config.value['mix-inbound-ip'] = appSettingsStore.app.mixInboundIP
   }
 
   const resetConfig = () => {
@@ -176,7 +178,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
       if (inbound) {
         inbound[type]!.listen.listen_port = port
       } else {
-        const _type = DefaultInboundMixed()!
+        const _type = DefaultInboundMixed(appSettingsStore.app.mixInboundIP)!
         _type.listen.listen_port = port
         inbound = {
           id: type + '-in',
@@ -194,7 +196,19 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
       if (!runtimeProfile) return
       runtimeProfile.inbounds.forEach((inbound) => {
         if (inbound.type === Inbound.Tun) return
-        inbound[inbound.type]!.listen.listen = allowLan ? '0.0.0.0' : '127.0.0.1'
+        inbound[inbound.type]!.listen.listen = allowLan ? '0.0.0.0' : appSettingsStore.app.mixInboundIP
+      })
+    }
+
+    const patchInboundListen = (ip: string) => {
+      if (!runtimeProfile) return
+      appSettingsStore.app.mixInboundIP = ip
+      runtimeProfile.inbounds.forEach((inbound) => {
+        if (inbound.type === Inbound.Tun) return
+        const listen = inbound[inbound.type]!.listen.listen
+        if (listen !== '0.0.0.0' && listen !== '::') {
+          inbound[inbound.type]!.listen.listen = ip
+        }
       })
     }
 
@@ -223,6 +237,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
       socks: () => patchInboundPort(Inbound.Socks, value),
       mixed: () => patchInboundPort(Inbound.Mixed, value),
       'allow-lan': () => patchInboundAddress(value),
+      'mix-inbound-ip': () => patchInboundListen(value),
       tun: () => patchInboundTun(value),
       'tun-stack': () => patchInboundTun(value),
       'tun-device': () => patchInboundTun(value),
