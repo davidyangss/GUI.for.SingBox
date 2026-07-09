@@ -33,6 +33,9 @@ const onMixedPortSubmit = createValueWatcher(kernelApiStore.config['mixed-port']
 const onMixInboundIPSubmit = createValueWatcher(kernelApiStore.config['mix-inbound-ip'], (ip) =>
   kernelApiStore.updateConfig('mix-inbound-ip', ip),
 )
+const onMixInboundPortSubmit = createValueWatcher(kernelApiStore.config['mix-inbound-port'], (port) =>
+  kernelApiStore.updateConfig('mix-inbound-port', port),
+)
 const onAllowLanChange = createValueWatcher(kernelApiStore.config['allow-lan'], (allow) =>
   kernelApiStore.updateConfig('allow-lan', allow),
 )
@@ -129,6 +132,19 @@ const onInterfaceChange = createValueWatcher(
           auto-size
           class="w-full"
           @submit="onMixInboundIPSubmit"
+        />
+      </Card>
+      <Card :title="t('settings.mixInboundPort')">
+        <Input
+          v-model="kernelApiStore.config['mix-inbound-port']"
+          :min="0"
+          :max="65535"
+          type="number"
+          editable
+          :border="false"
+          auto-size
+          class="w-full"
+          @submit="onMixInboundPortSubmit"
         />
       </Card>
     </div>

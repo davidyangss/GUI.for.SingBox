@@ -99,10 +99,10 @@ export const DefaultInboundHttp = (): NonNullable<IInbound['http']> => ({
   users: [],
 })
 
-export const DefaultInboundMixed = (listen = '126.0.0.1'): NonNullable<IInbound['mixed']> => ({
+export const DefaultInboundMixed = (listen = '126.0.0.1', listen_port = 7897): NonNullable<IInbound['mixed']> => ({
   listen: {
     listen,
-    listen_port: 20122,
+    listen_port,
     tcp_fast_open: false,
     tcp_multi_path: false,
     udp_fragment: false,

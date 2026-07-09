@@ -3,6 +3,7 @@ export interface CoreApiConfig {
   'socks-port': number
   'mixed-port': number
   'mix-inbound-ip': string
+  'mix-inbound-port': number
   'interface-name': string
   'allow-lan': boolean
   mode: string

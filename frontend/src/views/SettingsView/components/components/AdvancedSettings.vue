@@ -66,5 +66,9 @@ const handleOpenRollingReleaseFolder = async () => {
       <div class="text-16 font-bold">{{ $t('settings.mixInboundIP') }}</div>
       <Input v-model="appSettings.app.mixInboundIP" editable auto-size class="w-[200px]" />
     </div>
+    <div class="px-8 py-12 flex items-center justify-between">
+      <div class="text-16 font-bold">{{ $t('settings.mixInboundPort') }}</div>
+      <Input v-model="appSettings.app.mixInboundPort" type="number" editable auto-size class="w-[200px]" />
+    </div>
   </Card>
 </template>

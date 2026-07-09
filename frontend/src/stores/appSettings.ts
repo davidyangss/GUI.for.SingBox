@@ -73,6 +73,7 @@ export const useAppSettingsStore = defineStore('app-settings', () => {
     systemProxyDNS: '',
     systemDefaultDNS: '',
     mixInboundIP: '126.0.0.1',
+    mixInboundPort: 7897,
     autoStartKernel: false,
     autoRestartKernel: false,
     userAgent: '',
@@ -182,6 +183,9 @@ export const useAppSettingsStore = defineStore('app-settings', () => {
     }
     if (!settings.mixInboundIP) {
       settings.mixInboundIP = '126.0.0.1'
+    }
+    if (!settings.mixInboundPort) {
+      settings.mixInboundPort = 7897
     }
 
     app.value = settings

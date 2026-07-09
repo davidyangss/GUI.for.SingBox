@@ -697,6 +697,7 @@ export default {
     contentProtectionTips: '防止屏幕录制/共享软件捕获窗口内容(重启生效)',
     rollingRelease: '启用滚动发行',
     mixInboundIP: '混合入站监听 IP',
+    mixInboundPort: '混合入站端口',
     debugOutline: '组件轮廓',
     debugNoAnimation: '禁用动画',
     debugNoRounded: '禁用圆角',

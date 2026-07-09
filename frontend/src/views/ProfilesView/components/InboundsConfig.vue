@@ -31,7 +31,7 @@ const inbounds = [
         tag: 'mixed-in',
         type: Inbound.Mixed,
         enable: true,
-        mixed: DefaultInboundMixed(appSettings.app.mixInboundIP),
+        mixed: DefaultInboundMixed(appSettings.app.mixInboundIP, appSettings.app.mixInboundPort),
       })
     },
   },

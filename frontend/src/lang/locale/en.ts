@@ -698,6 +698,7 @@ export default {
     contentProtectionTips: 'Blocks screen capture (Restart Required)',
     rollingRelease: 'Enable Rolling Release',
     mixInboundIP: 'Mixed Inbound Listen IP',
+    mixInboundPort: 'Mixed Inbound Port',
     debugOutline: 'Show component outlines',
     debugNoAnimation: 'Disable animations',
     debugNoRounded: 'Disable rounded corners',

@@ -72,6 +72,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     'mixed-port': 0,
     'socks-port': 0,
     'mix-inbound-ip': '',
+    'mix-inbound-port': 0,
     'interface-name': '',
     'allow-lan': false,
     mode: '',
@@ -137,6 +138,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     config.value.tun.stack = tun?.tun?.stack || ''
     config.value['interface-name'] = runtimeProfile.route.default_interface
     config.value['mix-inbound-ip'] = appSettingsStore.app.mixInboundIP
+    config.value['mix-inbound-port'] = appSettingsStore.app.mixInboundPort
   }
 
   const resetConfig = () => {
@@ -178,7 +180,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
       if (inbound) {
         inbound[type]!.listen.listen_port = port
       } else {
-        const _type = DefaultInboundMixed(appSettingsStore.app.mixInboundIP)!
+        const _type = DefaultInboundMixed(appSettingsStore.app.mixInboundIP, appSettingsStore.app.mixInboundPort)!
         _type.listen.listen_port = port
         inbound = {
           id: type + '-in',
@@ -212,6 +214,16 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
       })
     }
 
+    const patchInboundMixedPort = (port: number) => {
+      if (!runtimeProfile) return
+      appSettingsStore.app.mixInboundPort = port
+      const inbound = runtimeProfile.inbounds.find((v) => v.type === Inbound.Mixed)
+      if (inbound?.mixed) {
+        inbound.mixed.listen.listen_port = port
+        inbound.enable = port !== 0
+      }
+    }
+
     const patchInboundTun = (options: {
       enable: boolean
       stack: string
@@ -238,6 +250,7 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
       mixed: () => patchInboundPort(Inbound.Mixed, value),
       'allow-lan': () => patchInboundAddress(value),
       'mix-inbound-ip': () => patchInboundListen(value),
+      'mix-inbound-port': () => patchInboundMixedPort(value),
       tun: () => patchInboundTun(value),
       'tun-stack': () => patchInboundTun(value),
       'tun-device': () => patchInboundTun(value),

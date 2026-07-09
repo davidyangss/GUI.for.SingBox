@@ -78,6 +78,7 @@ export interface AppSettings {
   systemProxyDNS: string
   systemDefaultDNS: string
   mixInboundIP: string
+  mixInboundPort: number
   autoStartKernel: boolean
   autoRestartKernel: boolean
   userAgent: string
