@@ -291,6 +291,28 @@ func setWindowsSystemProxy(server string, enabled bool, proxyType string, bypass
 }
 
 func setDarwinSystemProxy(server string, enabled bool, proxyType string, bypass string, services []string) error {
+	// Filter services against actually-available network services to avoid
+	// "Unable to find item in network database" errors when stored config
+	// contains stale entries like "Ethernet" on a Wi-Fi-only Mac.
+	if available, err := getDarwinNetworkServices(); err == nil && len(available) > 0 {
+		availableSet := make(map[string]bool, len(available))
+		for _, s := range available {
+			availableSet[s] = true
+		}
+		filtered := services[:0]
+		for _, s := range services {
+			if availableSet[strings.TrimSpace(s)] {
+				filtered = append(filtered, s)
+			}
+		}
+		// If all provided services were invalid, fall back to all available ones
+		if len(filtered) == 0 {
+			services = available
+		} else {
+			services = filtered
+		}
+	}
+
 	commands := [][]string{}
 	for _, device := range services {
 		device = strings.TrimSpace(device)
