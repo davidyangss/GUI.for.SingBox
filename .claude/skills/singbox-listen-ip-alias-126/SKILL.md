@@ -1,0 +1,164 @@
+---
+name: "singbox-listen-ip-alias-126"
+description: "Replaces GUI.for.SingBox localhost defaults with 126.0.0.1 for listen IP, controller, and proxy access. Invoke when syncing a new upstream version and reapplying the 126.0.0.1 alias patch."
+---
+
+# GUI.for.SingBox Configurable Listen IP Patch (formerly 126.0.0.1 Alias Patch)
+
+Use this skill when updating `GUI.for.SingBox` to a new upstream version and you need to reapply the local customization that makes the listen IP (previously hardcoded to `126.0.0.1`) configurable in the UI.
+
+This patch is intended for a personal environment where:
+
+- the host has an IP alias such as `126.0.0.1`
+- OrbStack containers need to access the host proxy/controller through that alias
+- the default localhost-only behavior should move from `127.0.0.1` to a configurable IP (defaulting to `126.0.0.1`)
+
+## Goal
+
+Make the frontend use a configurable `mixInboundIP` (stored in `AppSettings`) instead of hardcoded `127.0.0.1` or `126.0.0.1` for:
+
+- default inbound `listen` addresses
+- default `clash_api.external_controller`
+- Home overview temporary "not allow LAN" listen address
+- controller API base URL construction
+- system proxy detection and system proxy setup
+- helper-generated proxy URLs
+- visible UI placeholders that mention the local loopback/default address
+
+Also provide a UI setting in the "Advanced" section to change this IP.
+
+## Files Usually Involved
+
+- `frontend/src/types/app.d.ts` (added `mixInboundIP` to `AppSettings`)
+- `frontend/src/stores/appSettings.ts` (initialized `mixInboundIP` default)
+- `frontend/src/lang/locale/zh.ts` / `en.ts` (added translations)
+- `frontend/src/views/SettingsView/components/components/AdvancedSettings.vue` (added UI setting)
+- `frontend/src/views/HomeView/components/CommonController.vue` (added UI setting in Core Settings modal)
+- `frontend/src/constant/profile.ts`
+- `frontend/src/stores/kernelApi.ts`
+- `frontend/src/api/kernel.ts`
+- `frontend/src/stores/env.ts`
+- `frontend/src/utils/helper.ts`
+- `frontend/src/views/ProfilesView/components/DnsServersConfig.vue`
+- `frontend/src/views/ProfilesView/components/InboundsConfig.vue`
+
+## Required Behavior
+
+1. Use `appSettings.app.mixInboundIP` instead of `127.0.0.1` or `126.0.0.1` for all local bind/controller/proxy endpoints.
+2. Keep `allow-lan = true` behavior unchanged as `0.0.0.0`.
+3. When `allow-lan = false`, use `appSettings.app.mixInboundIP`.
+4. Make controller API access honor the host from `experimental.clash_api.external_controller` or fallback to `appSettings.app.mixInboundIP`.
+5. Provide an input field in "Advanced Settings" to manage this IP.
+
+## Implementation Steps
+
+### 1. Update App Settings and UI
+
+- Add `mixInboundIP: string` to `AppSettings` in `frontend/src/types/app.d.ts`.
+- Initialize `mixInboundIP: '126.0.0.1'` in `frontend/src/stores/appSettings.ts`.
+- Add translation key `mixInboundIP` in `frontend/src/lang/locale/zh.ts` and `en.ts`.
+- Add an `Input` for `appSettings.app.mixInboundIP` in `frontend/src/views/SettingsView/components/components/AdvancedSettings.vue`.
+- Add an `Input` for `kernelApiStore.config['mix-inbound-ip']` in `frontend/src/views/HomeView/components/CommonController.vue` (Core Settings modal).
+
+### 2. Update profile defaults
+
+In `frontend/src/constant/profile.ts`:
+
+- change `DefaultInboundMixed` to accept an optional `listen` parameter (defaulting to `126.0.0.1`).
+- update `DefaultExperimental().clash_api.external_controller` to use `126.0.0.1:20123` (or better, make it dynamic if possible, though constants are hard).
+
+In `frontend/src/views/ProfilesView/components/InboundsConfig.vue`:
+
+- pass `appSettings.app.mixInboundIP` to `DefaultInboundMixed()` when adding a new inbound.
+
+### 2.5. Defensive fallback for `mixInboundIP` when loading old settings
+
+When users upgrade from a version that didn't have `mixInboundIP`, the saved YAML config file will be missing this field. Without a fallback, `appSettings.app.mixInboundIP` becomes `undefined`, causing proxy URLs to be generated as `http://:7897` (missing IP) instead of `http://126.0.0.1:7897`.
+
+In `frontend/src/stores/appSettings.ts`, inside `setupAppSettings()`, add after the existing `kernel.main` fallback:
+
+```ts
+if (!settings.mixInboundIP) {
+  settings.mixInboundIP = '126.0.0.1'
+}
+```
+
+In `frontend/src/utils/helper.ts`, in `GetSystemOrKernelProxy()`, add a `|| '126.0.0.1'` fallback on `mixInboundIP`:
+
+```ts
+const ip = useAppSettingsStore().app.mixInboundIP || '126.0.0.1'
+```
+
+This ensures the proxy address is always well-formed even if `mixInboundIP` is `undefined` or empty string.
+
+### 3. Update runtime behavior
+
+In `frontend/src/stores/kernelApi.ts`:
+
+- Add `'mix-inbound-ip': string` to `CoreApiConfig` interface in `frontend/src/types/kernel.d.ts`.
+- Initialize `'mix-inbound-ip': ''` in `kernelApiStore` config state.
+- In `refreshConfig`, sync `config.value['mix-inbound-ip']` with `appSettingsStore.app.mixInboundIP`.
+- Implement `patchInboundListen(ip: string)` to update `appSettingsStore.app.mixInboundIP` and update all non-LAN inbounds in `runtimeProfile`.
+- Add `'mix-inbound-ip'` handler to `fieldHandlerMap` in `updateConfig`.
+- replace hardcoded `126.0.0.1` with `appSettingsStore.app.mixInboundIP` in `patchInboundAddress`.
+- use `appSettingsStore.app.mixInboundIP` in `patchInboundPort` when creating a new inbound.
+
+In `frontend/src/stores/env.ts`:
+
+- replace `126.0.0.1` with `appSettings.app.mixInboundIP` in `updateSystemProxyStatus` (for `proxyServerList`).
+- replace `126.0.0.1` with `appSettings.app.mixInboundIP` in `setSystemProxy` when calling `SetSystemProxy`.
+
+In `frontend/src/utils/helper.ts`:
+
+- replace hardcoded `126.0.0.1` in `GetSystemOrKernelProxy` with `useAppSettingsStore().app.mixInboundIP`.
+
+### 4. Update controller API host handling
+
+In `frontend/src/api/kernel.ts`:
+
+- import `useAppSettingsStore`.
+- in `setupCoreApi`, use `appSettings.mixInboundIP` to construct the default controller address and fallback host.
+
+### 5. Update UI placeholders
+
+In `frontend/src/views/ProfilesView/components/DnsServersConfig.vue`:
+
+- replace hardcoded `126.0.0.1` in `KeyValueEditor` placeholder with `appSettings.app.mixInboundIP`.
+
+## Validation Checklist
+
+1. Verify that "Advanced Settings" shows the "Mixed Inbound Listen IP" field.
+2. Verify that the "Core Settings" modal (Home Overview) shows the "Mixed Inbound Listen IP" field and it updates the runtime config correctly.
+3. Change the IP in settings and verify:
+   - new "Mixed" inbounds use the new IP.
+   - system proxy setup uses the new IP.
+   - controller API continues to work (if the core is listening on that IP).
+   - "not allow LAN" mode in Home overview uses the new IP.
+4. Confirm that `126.0.0.1` is no longer hardcoded in the codebase (except as a default value in settings).
+5. Delete the `data/user.yaml` saved settings file (or ensure it has no `mixInboundIP` field) and restart — verify that proxy-based requests (e.g. sing-box version check) still work (i.e., proxy URL is `http://126.0.0.1:7897` not `http://:7897`).
+
+## Search Hints
+... (existing hints) ...
+
+## Notes
+
+- This is a personal-environment patch, not a general upstream-safe default.
+- `126.0.0.1` is not part of the standard loopback range; it depends on the host alias existing.
+- If current saved profiles still contain old `127.0.0.1` values, they may also need to be migrated or manually edited outside this skill.
+
+## Output Expectations
+
+When using this skill, report:
+
+- which files were changed
+- whether runtime `listen` preservation logic was kept
+- whether any `127.0.0.1` matches remain in `frontend/src`
+- whether diagnostics passed for edited files
+
+## Example Use
+
+Invoke this skill when the user says things like:
+
+- "升级 upstream 后，把 listen ip 和 localhost 默认值再改回 126.0.0.1"
+- "新版本同步后，重新应用 126.0.0.1 alias 补丁"
+- "把 GUI for singbox 的前端默认监听地址继续维持为 126.0.0.1"
