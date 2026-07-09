@@ -177,6 +177,31 @@ export const useAppSettingsStore = defineStore('app-settings', () => {
       settings.plugins = {
         sources: DefaultPluginHubSources(),
       }
+    } else if (!settings.plugins.sources || settings.plugins.sources.length === 0) {
+      settings.plugins.sources = DefaultPluginHubSources()
+    } else {
+      // Migrate old GitHub Raw or TestingCF URLs to Fastly JSDelivr
+      settings.plugins.sources.forEach((source) => {
+        if (
+          source.url.startsWith('https://raw.githubusercontent.com/GUI-for-Cores/Plugin-Hub/main/plugins/') ||
+          source.url.startsWith('https://testingcf.jsdelivr.net/gh/GUI-for-Cores/Plugin-Hub@main/plugins/') ||
+          source.url.startsWith('https://github.com/GUI-for-Cores/Plugin-Hub/raw/main/plugins/')
+        ) {
+          source.url = source.url
+            .replace(
+              'https://raw.githubusercontent.com/GUI-for-Cores/Plugin-Hub/main/plugins/',
+              'https://fastly.jsdelivr.net/gh/GUI-for-Cores/Plugin-Hub@main/plugins/',
+            )
+            .replace(
+              'https://testingcf.jsdelivr.net/gh/GUI-for-Cores/Plugin-Hub@main/plugins/',
+              'https://fastly.jsdelivr.net/gh/GUI-for-Cores/Plugin-Hub@main/plugins/',
+            )
+            .replace(
+              'https://github.com/GUI-for-Cores/Plugin-Hub/raw/main/plugins/',
+              'https://fastly.jsdelivr.net/gh/GUI-for-Cores/Plugin-Hub@main/plugins/',
+            )
+        }
+      })
     }
     if (settings.debugUsePointer === undefined) {
       settings.debugUsePointer = false

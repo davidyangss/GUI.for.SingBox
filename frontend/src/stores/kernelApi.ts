@@ -450,9 +450,6 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
       await stopCore()
       await cleanupTask?.()
       await startCore(keepRuntimeProfile ? runtimeProfile : undefined)
-    } catch (err) {
-      // Surface error but do not leave restarting stuck
-      throw err
     } finally {
       needRestart.value = false
       restarting.value = false

@@ -58,6 +58,10 @@ func main() {
 				Message: "© 2026 GUI.for.Cores",
 				Icon:    icon,
 			},
+			OnUrlOpen: func(url string) {
+				runtime.Show(app.Ctx)
+				runtime.EventsEmit(app.Ctx, "onLaunchApp", []string{url})
+			},
 		},
 		Linux: &linux.Options{
 			Icon:                icon,

@@ -15,5 +15,6 @@
         "allowTernary": true
       }
     ]
-  }
+  },
+  "ignorePatterns": ["public/proxy-utils.esm.mjs"]
 }

@@ -10,7 +10,7 @@ export default defineConfigWithVueTs(
     files: ['**/*.{ts,vue}'],
   },
 
-  globalIgnores(['**/dist/**', '**/wailsjs/**']),
+  globalIgnores(['**/dist/**', '**/wailsjs/**', 'public/proxy-utils.esm.mjs']),
 
   ...pluginVue.configs['flat/recommended'],
   vueTsConfigs.recommended,
