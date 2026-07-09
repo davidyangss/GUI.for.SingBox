@@ -30,9 +30,10 @@ The full process runs in this order:
 ```
 Step 1: Build frontend       →  pnpm install && pnpm build
 Step 2: Package with Wails    →  wails build
-Step 3: Sign with certificate →  codesign --force --deep --sign "yssbook Local Code Signing"
-Step 4: Verify signature      →  codesign -dvvv
-Step 5: Install to /Applications → cp -R
+Step 3: Copy plugins          →  cp -R .claude/skills/000-singbox-build-install-macos-cert/plugins/ build/bin/GUI.for.SingBox.app/Contents/MacOS/data/plugins
+Step 4: Sign with certificate →  codesign --force --deep --sign "yssbook Local Code Signing"
+Step 5: Verify signature      →  codesign -dvvv
+Step 6: Install to /Applications → cp -R
 ```
 
 ---
@@ -131,11 +132,57 @@ Expected output:
 build/bin/GUI.for.SingBox.app
 ```
 
-At this point the app has only an **ad-hoc** signature (flag `0x2(adhoc)`). The next step replaces it with the `yssbook` certificate.
+At this point the app has only an **ad-hoc** signature (flag `0x2(adhoc)`). The next step embeds the plugins, then signing replaces the ad-hoc signature.
 
 ---
 
-## Step 3: Sign With yssbook-codesign Certificate
+## Step 3: Copy Plugins Into App Bundle
+
+The `plugins/` directory bundled with this skill must be copied into the app bundle **before signing**, so that all content is covered by the signature.
+
+Source path (bundled with skill):
+
+```
+.claude/skills/000-singbox-build-install-macos-cert/plugins/
+```
+
+Target path inside the bundle:
+
+```
+build/bin/GUI.for.SingBox.app/Contents/MacOS/data/plugins
+```
+
+Run from the repo root:
+
+```bash
+mkdir -p "/private/idata/icoding/projects/singbox/GUI.for.SingBox.git/build/bin/GUI.for.SingBox.app/Contents/MacOS/data/plugins"
+cp -R "/private/idata/icoding/projects/singbox/GUI.for.SingBox.git/.claude/skills/000-singbox-build-install-macos-cert/plugins/." \
+  "/private/idata/icoding/projects/singbox/GUI.for.SingBox.git/build/bin/GUI.for.SingBox.app/Contents/MacOS/data/plugins/"
+```
+
+Verify the files landed correctly:
+
+```bash
+ls "/private/idata/icoding/projects/singbox/GUI.for.SingBox.git/build/bin/GUI.for.SingBox.app/Contents/MacOS/data/plugins"
+```
+
+Expected output should list the plugin `.js` files, e.g.:
+
+```
+plugin-config-override.js
+plugin-import-configuration-to-gui.js
+plugin-node-convert.js
+plugin-quick-start-guide.js
+plugin-share-profile-to-phone.js
+plugin-speedtest.js
+plugin-systemproxy-external.js
+```
+
+> **Why before signing:** `codesign --deep` seals all content under `Contents/`. Adding files after signing invalidates the signature.
+
+---
+
+## Step 4: Sign With yssbook-codesign Certificate
 
 Use `codesign` to replace the ad-hoc signature with the `yssbook Local Code Signing` identity:
 
@@ -156,7 +203,7 @@ Flags explained:
 
 ---
 
-## Step 4: Verify Signature
+## Step 5: Verify Signature
 
 Confirm the app is signed with the correct certificate:
 
@@ -175,7 +222,7 @@ If you see `Signature=adhoc` or `flags=0x2(adhoc)`, the signing did not take eff
 
 ---
 
-## Step 5: Install To /Applications
+## Step 6: Install To /Applications
 
 Using `cp -R` to overwrite the existing `.app` in `/Applications/` preserves user configuration. The app's config files are stored in user directories (e.g., `~/Library/Application Support/GUI.for.SingBox/`), not inside the `.app` bundle, so replacing the app package does not affect user data.
 
@@ -323,11 +370,12 @@ After running this skill, verify each step:
 | 2. Certificate | `yssbook Local Code Signing` found in keychain via `security find-identity` |
 | 3. Frontend build | `pnpm build` passed, `frontend/dist/` populated |
 | 4. Wails package | `wails build` passed, `build/bin/GUI.for.SingBox.app` exists |
-| 5. Codesign | `codesign --sign "yssbook Local Code Signing"` succeeded |
-| 6. Signature verify | `codesign -dvvv` shows `Authority=yssbook Local Code Signing`, not adhoc |
-| 7. Install | `build/bin/GUI.for.SingBox.app` copied to `/Applications/` or user instructed to do so |
-| 8. URL Scheme | `Info.plist` contains `CFBundleURLTypes` with `singbox` scheme (see `singbox-url-scheme-macos` for details) |
-| 9. Sing-box certs | User informed that custom TLS certificates are configured through `Mixin & Script` |
+| 5. Plugins copy | `plugins/*.js` copied to `build/bin/GUI.for.SingBox.app/Contents/MacOS/data/plugins/` |
+| 6. Codesign | `codesign --sign "yssbook Local Code Signing"` succeeded |
+| 7. Signature verify | `codesign -dvvv` shows `Authority=yssbook Local Code Signing`, not adhoc |
+| 8. Install | `build/bin/GUI.for.SingBox.app` copied to `/Applications/` or user instructed to do so |
+| 9. URL Scheme | `Info.plist` contains `CFBundleURLTypes` with `singbox` scheme (see `singbox-url-scheme-macos` for details) |
+| 10. Sing-box certs | User informed that custom TLS certificates are configured through `Mixin & Script` |
 
 ## Search Hints
 
@@ -353,6 +401,7 @@ When using this skill, report:
 - whether frontend build succeeded
 - whether Wails packaging succeeded
 - where the `.app` was generated
+- whether plugins were successfully copied into the app bundle
 - codesigning result: Authority name, signature size, signed time
 - whether install succeeded or was blocked by sandbox
 - if blocked: the exact `cp` command the user should run in their own terminal
