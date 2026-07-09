@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git log *)"
+      "Bash(git log *)",
+      "Bash(security find-identity *)",
+      "Bash(pnpm -v)",
+      "Bash(go version *)",
+      "Bash(wails version *)"
     ]
   }
 }
