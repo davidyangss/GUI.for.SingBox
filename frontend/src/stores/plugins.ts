@@ -466,14 +466,14 @@ export const usePluginsStore = defineStore('plugins', () => {
       await runPluginEvent(id, PluginTriggerEvent.OnDisabled, [], {
         allowDisabled: true,
         allowUndefined: true,
-      })
+      }).catch(() => {})
     }
 
-    await disposePluginInstance(id)
+    await disposePluginInstance(id).catch(() => {})
     await runPluginEvent(id, PluginTriggerEvent.OnUninstall, [], {
       allowDisabled: true,
       allowUndefined: true,
-    })
+    }).catch(() => {})
 
     plugins.value.splice(idx, 1)
 
