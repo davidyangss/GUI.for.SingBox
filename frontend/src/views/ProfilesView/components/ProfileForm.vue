@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, inject, computed, useTemplateRef, type Ref, h } from 'vue'
+import { ref, inject, computed, useTemplateRef, watch, type Ref, h } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { useProfilesStore } from '@/stores'
+import { useProfilesStore, useSubscribesStore } from '@/stores'
 import { deepClone, generateConfig, message, alert } from '@/utils'
 
 import Button from '@/components/Button/index.vue'
@@ -42,6 +42,7 @@ const outboundsRef = useTemplateRef('outboundsRef')
 const routeRef = useTemplateRef('routeRef')
 const dnsRef = useTemplateRef('dnsRef')
 const profilesStore = useProfilesStore()
+const subscribesStore = useSubscribesStore()
 
 const loading = ref(false)
 const currentStep = ref(props.step)
@@ -57,6 +58,34 @@ const stepItems = [
 ] as const
 
 const profile = ref<IProfile>(profilesStore.getProfileTemplate())
+
+// Auto-link same-named subscription when user types a profile name
+// Track if auto-link has already been applied to avoid duplicate linking
+const autoLinkApplied = ref(false)
+
+watch(
+  () => profile.value.name,
+  (newName) => {
+    // Only auto-link for new profiles (not edits) when name is non-empty
+    if (!props.id && newName && !autoLinkApplied.value) {
+      const matchedSub = subscribesStore.subscribes.find((s) => s.name === newName)
+
+      if (matchedSub && profile.value.outbounds[0] && profile.value.outbounds[1]) {
+        // Check if subscription is already linked to avoid duplicates
+        const alreadyLinked = profile.value.outbounds[0].outbounds.some(
+          (o) => o.id === matchedSub.id && o.type === 'Subscription'
+        )
+
+        if (!alreadyLinked) {
+          const subRef = { id: matchedSub.id, tag: matchedSub.name, type: 'Subscription' }
+          profile.value.outbounds[0].outbounds.push(subRef)
+          profile.value.outbounds[1].outbounds.push(subRef)
+          autoLinkApplied.value = true
+        }
+      }
+    }
+  }
+)
 
 const inboundOptions = computed(() =>
   profile.value.inbounds.map((v) => ({ label: v.tag, value: v.id })),

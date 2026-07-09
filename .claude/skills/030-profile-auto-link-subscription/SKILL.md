@@ -16,11 +16,13 @@ When manually creating a profile in "配置/Profile" page with the same name as 
 
 ## Root Cause
 
+**Two-layer problem**:
+
+### Layer 1: `getProfileTemplate()` ignores name
 The `getProfileTemplate()` function in `profiles.ts` creates a profile with default empty outbounds. It does not check for same-named subscriptions or auto-link them.
 
-**Code evidence**:
 ```typescript
-// frontend/src/stores/profiles.ts:71-84
+// frontend/src/stores/profiles.ts (original)
 const getProfileTemplate = (name = ''): IProfile => {
   return {
     id: sampleID(),
@@ -37,10 +39,26 @@ const getProfileTemplate = (name = ''): IProfile => {
 }
 ```
 
-In contrast, the Quick Start wizard explicitly links the subscription:
+### Layer 2: `ProfileForm.vue` calls `getProfileTemplate()` with no name
+
+Even after adding auto-link logic to `getProfileTemplate()`, the fix doesn't work because `ProfileForm.vue` calls the function **without a name**:
+
 ```typescript
-// frontend/src/views/HomeView/components/QuickStart.vue:42-47
-const profile = profilesStore.getProfileTemplate(name.value)
+// frontend/src/views/ProfilesView/components/ProfileForm.vue:59
+const profile = ref<IProfile>(profilesStore.getProfileTemplate())  // ← no name passed!
+```
+
+The name is entered by the user afterward via `v-model`, so the store's auto-link logic never fires:
+
+```html
+<!-- Step.Name input — name is set AFTER template creation -->
+<Input v-model="profile.name" ... />
+```
+
+In contrast, the Quick Start wizard **does** pass the name upfront:
+```typescript
+// frontend/src/views/HomeView/components/QuickStart.vue:42
+const profile = profilesStore.getProfileTemplate(name.value)  // ← name passed correctly
 
 if (profile.outbounds[0] && profile.outbounds[1]) {
   profile.outbounds[0].outbounds.push({ id: sub.id, tag: sub.id, type: 'Subscription' })
@@ -68,18 +86,18 @@ During config generation (`generator.ts:126-145`), the system:
 
 ## Fix: Auto-Link Same-Named Subscription
 
-### Step 1: Update imports in profiles.ts
+This requires changes in **two files**:
+
+### File 1: `frontend/src/stores/profiles.ts`
+
+#### Step 1: Import is already present (or add it)
 
 ```typescript
-// Add at the top of the file
-import { useSubscribesStore } from '@/stores'
+// Line 8 — ensure useSubscribesStore is imported
+import { useAppSettingsStore, useSubscribesStore } from '@/stores'
 ```
 
-**Note**: Since this is a Pinia store and we're inside another Pinia store, we need to call `useSubscribesStore()` inside the function, not at module level.
-
-### Step 2: Modify getProfileTemplate function
-
-Replace the `getProfileTemplate` function:
+#### Step 2: Modify `getProfileTemplate` function
 
 ```typescript
 const getProfileTemplate = (name = ''): IProfile => {
@@ -114,36 +132,80 @@ const getProfileTemplate = (name = ''): IProfile => {
 }
 ```
 
+**Note**: Call `useSubscribesStore()` **inside** the function, not at module level, to avoid circular dependency issues between Pinia stores.
+
+---
+
+### File 2: `frontend/src/views/ProfilesView/components/ProfileForm.vue`
+
+This is the **critical missing piece**. `ProfileForm.vue` calls `getProfileTemplate()` with no name, then the user types a name via `v-model`. The store-level fix alone doesn't work because the name is unavailable at template creation time.
+
+The fix is to add a `watch` on `profile.value.name` that triggers auto-linking reactively.
+
+#### Step 1: Update imports
+
+```typescript
+// Add watch and useSubscribesStore
+import { ref, inject, computed, useTemplateRef, watch, type Ref, h } from 'vue'
+import { useProfilesStore, useSubscribesStore } from '@/stores'
+```
+
+#### Step 2: Add `subscribesStore` reference
+
+```typescript
+const profilesStore = useProfilesStore()
+const subscribesStore = useSubscribesStore()
+```
+
+#### Step 3: Add watcher after profile ref initialization
+
+```typescript
+const profile = ref<IProfile>(profilesStore.getProfileTemplate())
+
+// Auto-link same-named subscription when user types a profile name
+// Track if auto-link has already been applied to avoid duplicate linking
+const autoLinkApplied = ref(false)
+
+watch(
+  () => profile.value.name,
+  (newName) => {
+    // Only auto-link for new profiles (not edits) when name is non-empty
+    if (!props.id && newName && !autoLinkApplied.value) {
+      const matchedSub = subscribesStore.subscribes.find((s) => s.name === newName)
+
+      if (matchedSub && profile.value.outbounds[0] && profile.value.outbounds[1]) {
+        // Check if subscription is already linked to avoid duplicates
+        const alreadyLinked = profile.value.outbounds[0].outbounds.some(
+          (o) => o.id === matchedSub.id && o.type === 'Subscription'
+        )
+
+        if (!alreadyLinked) {
+          const subRef = { id: matchedSub.id, tag: matchedSub.name, type: 'Subscription' }
+          profile.value.outbounds[0].outbounds.push(subRef)
+          profile.value.outbounds[1].outbounds.push(subRef)
+          autoLinkApplied.value = true
+        }
+      }
+    }
+  }
+)
+```
+
 ### Key Implementation Details
 
-1. **Only auto-link when name is provided**: If `name` is empty, skip the lookup (respects existing behavior for unnamed profiles)
+1. **Store fix alone is insufficient**: `ProfileForm.vue` calls `getProfileTemplate()` with no name argument, so the store-level check never fires for manual profile creation
 
-2. **Match by subscription name**: Uses `subscribes.find(s => s.name === name)` to locate the subscription
+2. **Watcher approach**: React to `profile.value.name` changes in `ProfileForm.vue` — triggers as the user types the name
 
-3. **Add to both default outbounds**: 
-   - `profile.outbounds[0]` is the default `select` group
-   - `profile.outbounds[1]` is the default `urltest` group
-   - This matches Quick Start wizard behavior
+3. **Only for new profiles**: Guard `!props.id` ensures the watcher does nothing when editing existing profiles
 
-4. **Safe access checks**: Verifies `profile.outbounds[0]` and `profile.outbounds[1]` exist before pushing references
+4. **`autoLinkApplied` flag**: Prevents duplicate subscription references if the user types, deletes, and retypes the same name
 
-5. **Reference format**: Uses `type: 'Subscription'` to indicate a whole-subscription reference (vs individual node references which use `type: sub.id`)
+5. **Duplicate check**: `alreadyLinked` guard as a secondary safety net against double-pushing
 
-### Step 3: No import changes needed at top level
-
-The import of `useSubscribesStore` can be added alongside the existing store imports:
-
-```typescript
-import { useAppSettingsStore } from '@/stores'
-```
-
-becomes:
-
-```typescript
-import { useAppSettingsStore, useSubscribesStore } from '@/stores'
-```
-
-However, note that we call `useSubscribesStore()` **inside** the `getProfileTemplate` function, not at the module level, to avoid circular dependency issues between Pinia stores.
+6. **Add to both default outbounds**:
+   - `profile.outbounds[0]` — default `select` group
+   - `profile.outbounds[1]` — default `urltest` group
 
 ## Behavior After Fix
 
@@ -175,32 +237,26 @@ After applying this fix, verify:
 
 ## When to Reapply
 
-When syncing a new upstream version of `GUI.for.SingBox`, check if `frontend/src/stores/profiles.ts` still has the basic `getProfileTemplate` without auto-linking logic. If upstream reverted or modified the function, reapply this enhancement.
+When syncing a new upstream version of `GUI.for.SingBox`, check if these files have been reverted:
 
-## Alternative: UI-Level Auto-Link
+1. `frontend/src/stores/profiles.ts` — ensure `getProfileTemplate()` still has the auto-link logic
+2. `frontend/src/views/ProfilesView/components/ProfileForm.vue` — ensure the watcher is present
 
-If modifying the store feels too invasive, an alternative approach is to add the auto-link logic at the UI level in `ProfileForm.vue`:
+If upstream modified these files, reapply both changes.
 
-```typescript
-// In ProfileForm.vue, when opening the form for a new profile
-const handleShowProfileForm = (name: string) => {
-  const profile = profilesStore.getProfileTemplate(name)
-  
-  // Auto-link same-named subscription
-  if (name) {
-    const matchedSub = subscribesStore.subscribes.find(s => s.name === name)
-    if (matchedSub && profile.outbounds[0] && profile.outbounds[1]) {
-      const subRef = { id: matchedSub.id, tag: matchedSub.name, type: 'Subscription' }
-      profile.outbounds[0].outbounds.push(subRef)
-      profile.outbounds[1].outbounds.push(subRef)
-    }
-  }
-  
-  return profile
-}
+## Build and Install
+
+After applying the fix, rebuild and install:
+
+```bash
+# Build for macOS
+wails build -platform darwin/amd64
+
+# Install to Applications
+cp -R build/bin/GUI.for.SingBox.app /Applications/
 ```
 
-However, the store-level approach is cleaner because:
-- Centralizes the logic in one place
-- Ensures consistency across all profile creation paths
-- Matches the architectural pattern of Quick Start wizard
+**Version**: Ensure `bridge/bridge.go` line 31 has the correct version:
+```go
+AppVersion: "v1.25.4",
+```

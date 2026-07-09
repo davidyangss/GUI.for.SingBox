@@ -24,11 +24,11 @@ export function GetEnv(arg1:string):Promise<any>;
 
 export function GetInterfaces():Promise<bridge.FlagResult>;
 
+export function GetNetworkServices():Promise<bridge.FlagResult>;
+
 export function GetSystemProxy():Promise<bridge.FlagResult>;
 
 export function GetSystemProxyBypass():Promise<bridge.FlagResult>;
-
-export function GetNetworkServices():Promise<bridge.FlagResult>;
 
 export function IsStartup():Promise<boolean>;
 

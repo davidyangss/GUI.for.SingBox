@@ -46,16 +46,16 @@ export function GetInterfaces() {
   return window['go']['bridge']['App']['GetInterfaces']();
 }
 
+export function GetNetworkServices() {
+  return window['go']['bridge']['App']['GetNetworkServices']();
+}
+
 export function GetSystemProxy() {
   return window['go']['bridge']['App']['GetSystemProxy']();
 }
 
 export function GetSystemProxyBypass() {
   return window['go']['bridge']['App']['GetSystemProxyBypass']();
-}
-
-export function GetNetworkServices() {
-  return window['go']['bridge']['App']['GetNetworkServices']();
 }
 
 export function IsStartup() {
