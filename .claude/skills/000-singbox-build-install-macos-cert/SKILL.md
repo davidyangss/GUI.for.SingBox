@@ -133,6 +133,25 @@ build/bin/GUI.for.SingBox.app
 
 At this point the app has only an **ad-hoc** signature (flag `0x2(adhoc)`). The next step replaces it with the `yssbook` certificate.
 
+### App Naming Convention: Include Version Number
+
+**Important**: The final app name in `/Applications/` must include the version number to distinguish different builds and avoid overwriting previous versions unintentionally.
+
+Version number location:
+- `bridge/bridge.go:31` - `AppVersion` field (e.g., `"v1.25.4"`)
+- `frontend/.env:2` - `VITE_APP_VERSION` (should match)
+
+After `wails build` completes, rename the app to include the version:
+
+```bash
+cd build/bin
+mv GUI.for.SingBox.app GUI.for.SingBox-1.25.4.app
+```
+
+Replace `1.25.4` with the actual version from `bridge.go`.
+
+All subsequent steps (signing, verification, installation) should use the versioned app name.
+
 ---
 
 ## Step 3: Sign With yssbook-codesign Certificate
@@ -142,7 +161,7 @@ Use `codesign` to replace the ad-hoc signature with the `yssbook Local Code Sign
 ```bash
 codesign --force --deep --sign "yssbook Local Code Signing" \
   --timestamp=none \
-  /private/idata/icoding/projects/singbox/GUI.for.SingBox.git/build/bin/GUI.for.SingBox.app
+  /private/idata/icoding/projects/singbox/GUI.for.SingBox.git/build/bin/GUI.for.SingBox-<VERSION>.app
 ```
 
 Flags explained:
@@ -161,7 +180,7 @@ Flags explained:
 Confirm the app is signed with the correct certificate:
 
 ```bash
-codesign -dvvv /private/idata/icoding/projects/singbox/GUI.for.SingBox.git/build/bin/GUI.for.SingBox.app
+codesign -dvvv /private/idata/icoding/projects/singbox/GUI.for.SingBox.git/build/bin/GUI.for.SingBox-<VERSION>.app
 ```
 
 Expected key lines in output:
@@ -177,28 +196,30 @@ If you see `Signature=adhoc` or `flags=0x2(adhoc)`, the signing did not take eff
 
 ## Step 5: Install To /Applications
 
-Using `cp -R` to overwrite the existing `.app` in `/Applications/` preserves user configuration. The app's config files are stored in user directories (e.g., `~/Library/Application Support/GUI.for.SingBox/`), not inside the `.app` bundle, so replacing the app package does not affect user data.
+Using `cp -a` (archive mode) to overwrite the existing `.app` in `/Applications/` preserves user configuration and all file attributes including extended attributes and code signatures. The app's config files are stored in user directories (e.g., `~/Library/Application Support/GUI.for.SingBox/`), not inside the `.app` bundle, so replacing the app package does not affect user data.
+
+**Note**: Use `cp -a` instead of `cp -R` because `-a` preserves extended attributes (xattr) which are required for code signatures to remain valid after copying.
 
 Try the direct copy first:
 
 ```bash
-cp -R "/private/idata/icoding/projects/singbox/GUI.for.SingBox.git/build/bin/GUI.for.SingBox.app" /Applications/
+cp -a "/private/idata/icoding/projects/singbox/GUI.for.SingBox.git/build/bin/GUI.for.SingBox-<VERSION>.app" /Applications/
 ```
 
 If the environment is sandboxed or permission-restricted, this will fail with `operation not permitted`. In that case:
 
-1. Keep the built artifact in `build/bin/GUI.for.SingBox.app`
+1. Keep the built artifact in `build/bin/GUI.for.SingBox-<VERSION>.app`
 2. Tell the user the app was built and signed successfully
 3. Instruct the user to run the copy command **in their own terminal** (outside the sandbox):
 
 ```bash
-cp -R "/private/idata/icoding/projects/singbox/GUI.for.SingBox.git/build/bin/GUI.for.SingBox.app" /Applications/
+cp -a "/private/idata/icoding/projects/singbox/GUI.for.SingBox.git/build/bin/GUI.for.SingBox-<VERSION>.app" /Applications/
 ```
 
 If that also fails with a permission error, suggest:
 
 ```bash
-sudo cp -R "/private/idata/icoding/projects/singbox/GUI.for.SingBox.git/build/bin/GUI.for.SingBox.app" /Applications/
+sudo cp -a "/private/idata/icoding/projects/singbox/GUI.for.SingBox.git/build/bin/GUI.for.SingBox-<VERSION>.app" /Applications/
 ```
 
 Only suggest `sudo` when the non-privileged copy fails and the user is performing the step in their own terminal.
@@ -322,10 +343,10 @@ After running this skill, verify each step:
 | 1. Toolchain | `node`, `pnpm`, `go`, `wails` versions detected and reported |
 | 2. Certificate | `yssbook Local Code Signing` found in keychain via `security find-identity` |
 | 3. Frontend build | `pnpm build` passed, `frontend/dist/` populated |
-| 4. Wails package | `wails build` passed, `build/bin/GUI.for.SingBox.app` exists |
-| 5. Codesign | `codesign --sign "yssbook Local Code Signing"` succeeded |
+| 4. Wails package | `wails build` passed, `build/bin/GUI.for.SingBox.app` exists, renamed to `GUI.for.SingBox-<VERSION>.app` |
+| 5. Codesign | `codesign --sign "yssbook Local Code Signing"` succeeded on versioned `.app` |
 | 6. Signature verify | `codesign -dvvv` shows `Authority=yssbook Local Code Signing`, not adhoc |
-| 7. Install | `build/bin/GUI.for.SingBox.app` copied to `/Applications/` or user instructed to do so |
+| 7. Install | `build/bin/GUI.for.SingBox-<VERSION>.app` copied to `/Applications/` or user instructed to do so |
 | 8. URL Scheme | `Info.plist` contains `CFBundleURLTypes` with `singbox` scheme (see `singbox-url-scheme-macos` for details) |
 | 9. Sing-box certs | User informed that custom TLS certificates are configured through `Mixin & Script` |
 

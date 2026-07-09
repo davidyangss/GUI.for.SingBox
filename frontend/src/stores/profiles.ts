@@ -5,7 +5,7 @@ import { parse } from 'yaml'
 import { ReadFile, WriteFile } from '@/bridge'
 import { ProfilesFilePath } from '@/constant/app'
 import * as Defaults from '@/constant/profile'
-import { useAppSettingsStore } from '@/stores'
+import { useAppSettingsStore, useSubscribesStore } from '@/stores'
 import { ignoredError, eventBus, stringifyNoFolding, migrateProfiles, sampleID } from '@/utils'
 
 export const useProfilesStore = defineStore('profiles', () => {
@@ -69,7 +69,7 @@ export const useProfilesStore = defineStore('profiles', () => {
   const getProfileById = (id: string) => profiles.value.find((v) => v.id === id)
 
   const getProfileTemplate = (name = ''): IProfile => {
-    return {
+    const profile: IProfile = {
       id: sampleID(),
       name: name,
       log: Defaults.DefaultLog(),
@@ -81,6 +81,20 @@ export const useProfilesStore = defineStore('profiles', () => {
       mixin: Defaults.DefaultMixin(),
       script: Defaults.DefaultScript(),
     }
+
+    // Auto-link same-named subscription if exists
+    if (name) {
+      const subscribesStore = useSubscribesStore()
+      const matchedSub = subscribesStore.subscribes.find((s) => s.name === name)
+
+      if (matchedSub && profile.outbounds[0] && profile.outbounds[1]) {
+        const subRef = { id: matchedSub.id, tag: matchedSub.name, type: 'Subscription' }
+        profile.outbounds[0].outbounds.push(subRef)
+        profile.outbounds[1].outbounds.push(subRef)
+      }
+    }
+
+    return profile
   }
 
   return {
