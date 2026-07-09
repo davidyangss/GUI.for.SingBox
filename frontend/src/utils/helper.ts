@@ -406,6 +406,28 @@ export const getKernelAssetFileName = (version: string) => {
   return `sing-box-${version}-${os}-${arch}${suffix}`
 }
 
+export const getKernelBundlePath = (isAlpha = false) => {
+  return `${CoreWorkingDirectory}/${getKernelFileName(isAlpha)}`
+}
+
+export const getKernelExecutablePath = async (isAlpha = false) => {
+  const { os } = useEnvStore().env
+  if (!isAlpha && os === OS.Darwin) {
+    for (const path of ['/usr/local/bin/sing-box', '/opt/homebrew/bin/sing-box']) {
+      if (await FileExists(path).catch(() => false)) {
+        return path
+      }
+    }
+  }
+  return getKernelBundlePath(isAlpha)
+}
+
+export const getKernelExecutableDirectory = async (isAlpha = false) => {
+  const path = await getKernelExecutablePath(isAlpha)
+  const lastSlashIndex = path.lastIndexOf('/')
+  return lastSlashIndex > 0 ? path.slice(0, lastSlashIndex) : path
+}
+
 export const processMagicVariables = (str: string) => {
   const { env } = useEnvStore()
   let result = str

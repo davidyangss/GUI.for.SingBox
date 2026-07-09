@@ -18,7 +18,6 @@ import {
   CoreConfigFilePath,
   CoreLogFilePath,
   CorePidFilePath,
-  CoreWorkingDirectory,
 } from '@/constant/kernel'
 import { DefaultInboundMixed } from '@/constant/profile'
 import { Branch } from '@/enums/app'
@@ -35,7 +34,7 @@ import {
 import {
   generateConfigFile,
   updateTrayAndMenus,
-  getKernelFileName,
+  getKernelExecutablePath,
   normalizeProxyHost,
   restoreProfile,
   deepClone,
@@ -270,8 +269,9 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
 
   const runCoreProcess = async (isAlpha: boolean) => {
     let stopped = false
+    const corePath = await getKernelExecutablePath(isAlpha)
     const pid = await ExecBackground(
-      CoreWorkingDirectory + '/' + getKernelFileName(isAlpha),
+      corePath,
       getKernelRuntimeArgs(isAlpha),
       undefined,
       async (end) => {

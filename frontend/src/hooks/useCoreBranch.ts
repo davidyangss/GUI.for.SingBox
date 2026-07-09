@@ -28,6 +28,9 @@ import {
   debounce,
   getKernelFileName,
   getKernelAssetFileName,
+  getKernelBundlePath,
+  getKernelExecutablePath,
+  getKernelExecutableDirectory,
 } from '@/utils'
 
 const StableUrl = 'https://api.github.com/repos/SagerNet/sing-box/releases/latest'
@@ -42,6 +45,7 @@ export const useCoreBranch = (isAlpha = false) => {
   const localVersion = ref('')
   const remoteVersion = ref('')
   const versionDetail = ref('')
+  const executablePath = ref('')
 
   const localVersionLoading = ref(false)
   const remoteVersionLoading = ref(false)
@@ -57,20 +61,22 @@ export const useCoreBranch = (isAlpha = false) => {
   const appSettings = useAppSettingsStore()
   const kernelApiStore = useKernelApiStore()
 
+  const CoreFilePath = getKernelBundlePath(isAlpha)
+  const CoreBakFilePath = `${CoreFilePath}.bak`
+
   const restartable = computed(() => {
     const { branch } = appSettings.app.kernel
     if (!kernelApiStore.running) return false
+    if (executablePath.value && executablePath.value !== CoreFilePath) return false
     return localVersion.value && downloadCompleted.value && (branch === Branch.Alpha) === isAlpha
   })
 
-  const updatable = computed(
-    () => remoteVersion.value && localVersion.value !== remoteVersion.value,
-  )
+  const updatable = computed(() => {
+    if (executablePath.value && executablePath.value !== CoreFilePath) return false
+    return remoteVersion.value && localVersion.value !== remoteVersion.value
+  })
 
   const grantable = computed(() => localVersion.value && envStore.env.os !== OS.Windows)
-
-  const CoreFilePath = `${CoreWorkingDirectory}/${getKernelFileName(isAlpha)}`
-  const CoreBakFilePath = `${CoreFilePath}.bak`
 
   const downloadCore = async () => {
     downloading.value = true
@@ -155,7 +161,9 @@ export const useCoreBranch = (isAlpha = false) => {
   const getLocalVersion = async (showTips = false) => {
     localVersionLoading.value = true
     try {
-      const res = await Exec(CoreFilePath, ['version'])
+      const resolvedPath = await getKernelExecutablePath(isAlpha)
+      executablePath.value = resolvedPath
+      const res = await Exec(resolvedPath, ['version'])
       versionDetail.value = res.trim()
       return res.match(/version (\S+)/)?.[1] || ''
     } catch (error: any) {
@@ -205,7 +213,8 @@ export const useCoreBranch = (isAlpha = false) => {
   }
 
   const grantCorePermission = async () => {
-    await GrantTUNPermission(CoreFilePath)
+    const resolvedPath = await getKernelExecutablePath(isAlpha)
+    await GrantTUNPermission(resolvedPath)
     message.success('common.success')
   }
 
@@ -230,7 +239,8 @@ export const useCoreBranch = (isAlpha = false) => {
   }
 
   const openFileLocation = async () => {
-    await OpenDir(CoreWorkingDirectory)
+    const resolvedDir = await getKernelExecutableDirectory(isAlpha)
+    await OpenDir(resolvedDir)
   }
 
   watch(
@@ -239,9 +249,13 @@ export const useCoreBranch = (isAlpha = false) => {
   )
 
   watch(
-    [localVersion, downloadCompleted],
+    [localVersion, downloadCompleted, executablePath],
     debounce(async () => {
-      rollbackable.value = await FileExists(CoreBakFilePath)
+      if (executablePath.value && executablePath.value !== CoreFilePath) {
+        rollbackable.value = false
+      } else {
+        rollbackable.value = await FileExists(CoreBakFilePath)
+      }
     }, 500),
   )
 
