@@ -4,6 +4,7 @@ import { parse, stringify } from 'yaml'
 
 import {
   GetSystemProxyBypass,
+  GetNetworkServices,
   ReadFile,
   WriteFile,
   WindowSetSystemDefaultTheme,
@@ -141,7 +142,12 @@ export const useAppSettingsStore = defineStore('app-settings', () => {
       settings.systemProxyServices = settings.darwinSystemProxyServices as string[]
       delete settings.darwinSystemProxyServices
     }
-    const defaultSystemProxyServices = envStore.env.os === 'darwin' ? ['Ethernet', 'Wi-Fi'] : []
+    
+    // Get actual network services dynamically
+    const defaultSystemProxyServices = envStore.env.os === 'darwin' 
+      ? (await ignoredError(GetNetworkServices)) || []
+      : []
+    
     if (!data) {
       settings.systemProxyServices = defaultSystemProxyServices
     } else if (!settings.systemProxyServices) {
@@ -150,6 +156,12 @@ export const useAppSettingsStore = defineStore('app-settings', () => {
       envStore.env.os === 'linux' &&
       settings.systemProxyServices.join(',') === 'Ethernet,Wi-Fi'
     ) {
+      settings.systemProxyServices = defaultSystemProxyServices
+    } else if (
+      envStore.env.os === 'darwin' &&
+      settings.systemProxyServices.join(',') === 'Ethernet,Wi-Fi'
+    ) {
+      // Fix hardcoded default for macOS users - replace with actual services
       settings.systemProxyServices = defaultSystemProxyServices
     }
     if (settings.autoSetSystemDNS === undefined) {

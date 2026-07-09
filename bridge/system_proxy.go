@@ -101,6 +101,35 @@ func (a *App) GetSystemProxyBypass() FlagResult {
 	return FlagResult{true, bypass}
 }
 
+func (a *App) GetNetworkServices() FlagResult {
+	log.Printf("GetNetworkServices")
+
+	var services []string
+	var err error
+
+	switch Env.OS {
+	case "darwin":
+		services, err = getDarwinNetworkServices()
+	case "linux":
+		// Linux doesn't use per-service proxy configuration
+		services = []string{}
+	case "windows":
+		// Windows doesn't use per-service proxy configuration
+		services = []string{}
+	}
+
+	if err != nil {
+		return FlagResult{false, err.Error()}
+	}
+
+	servicesJSON, err := json.Marshal(services)
+	if err != nil {
+		return FlagResult{false, err.Error()}
+	}
+
+	return FlagResult{true, string(servicesJSON)}
+}
+
 func getWindowsSystemProxy() (string, error) {
 	out, err := runSystemProxyCommand("reg", "query", `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`, "/v", "ProxyEnable", "/t", "REG_DWORD")
 	if err != nil {
@@ -436,12 +465,37 @@ func getWindowsSystemProxyBypass() (string, error) {
 	return match[1], nil
 }
 
+func getDarwinNetworkServices() ([]string, error) {
+	out, err := runSystemProxyCommand("networksetup", "-listallnetworkservices")
+	if err != nil {
+		return nil, err
+	}
+
+	services := []string{}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Skip the header line and disabled services (marked with *)
+		if line == "" || strings.HasPrefix(line, "An asterisk") || strings.HasPrefix(line, "*") {
+			continue
+		}
+		services = append(services, line)
+	}
+	return services, nil
+}
+
 func getDarwinSystemProxyBypass() (string, error) {
+	services, err := getDarwinNetworkServices()
+	if err != nil {
+		return "", err
+	}
+
 	result := []string{}
-	for _, device := range []string{"Ethernet", "Wi-Fi"} {
+	for _, device := range services {
 		out, err := runSystemProxyCommand("networksetup", "-getproxybypassdomains", device)
 		if err != nil {
-			return "", err
+			// Skip services that don't support proxy settings
+			continue
 		}
 		if strings.TrimSpace(out) == "" {
 			continue

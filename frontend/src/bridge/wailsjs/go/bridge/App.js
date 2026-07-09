@@ -54,6 +54,10 @@ export function GetSystemProxyBypass() {
   return window['go']['bridge']['App']['GetSystemProxyBypass']();
 }
 
+export function GetNetworkServices() {
+  return window['go']['bridge']['App']['GetNetworkServices']();
+}
+
 export function IsStartup() {
   return window['go']['bridge']['App']['IsStartup']();
 }

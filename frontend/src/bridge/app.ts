@@ -67,6 +67,14 @@ export const GetSystemProxyBypass = async () => {
   return data
 }
 
+export const GetNetworkServices = async (): Promise<string[]> => {
+  const { flag, data } = await App.GetNetworkServices()
+  if (!flag) {
+    throw data
+  }
+  return JSON.parse(data) as string[]
+}
+
 export const GetInterfaces = async () => {
   const { flag, data } = await App.GetInterfaces()
   if (!flag) {
