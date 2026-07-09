@@ -152,7 +152,7 @@ func createMacOSSymlink() {
 	}
 
 	linkPath := filepath.Join(Env.BasePath, "data")
-	appPath := filepath.Join("/Users", currentUser.Username, "Library", "Application Support", Env.AppName)
+	appPath := filepath.Join(currentUser.HomeDir, "Library", "Application Support", Env.AppName)
 
 	if err := os.MkdirAll(appPath, os.ModePerm); err != nil {
 		log.Printf("Failed to create macOS app data directory: %v", err)
