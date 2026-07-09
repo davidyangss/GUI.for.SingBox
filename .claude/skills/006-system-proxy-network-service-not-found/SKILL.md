@@ -22,10 +22,11 @@ Use this skill when working in `GUI.for.SingBox` and the user reports:
 
 ## Fix Summary
 
-1. **后端**: 新增 `GetNetworkServices()` 动态获取实际网络服务列表
+1. **后端**: 新增 `getDarwinNetworkServices()` / `GetNetworkServices()` 动态获取实际网络服务列表
 2. **后端**: 修复 `getDarwinSystemProxyBypass()` 使用动态列表
-3. **前端**: 添加 `GetNetworkServices` bridge 绑定
-4. **前端**: 初始化时用实际服务列表替换硬编码默认值
+3. **后端**: `setDarwinSystemProxy()` 在执行前过滤掉不存在的服务（防御性校验，兼容存量配置）
+4. **前端**: 添加 `GetNetworkServices` bridge 绑定
+5. **前端**: 初始化时用实际服务列表替换硬编码默认值，自动迁移已存储的错误值
 
 ## Implementation Details
 
@@ -116,6 +117,45 @@ func getDarwinSystemProxyBypass() (string, error) {
 	return strings.Join(result, ";"), nil
 }
 ```
+
+#### Add defensive filtering in `setDarwinSystemProxy()`:
+
+This prevents errors even when the frontend passes stale service names from stored config (e.g., `['Ethernet', 'Wi-Fi']` on a Mac that only has Wi-Fi).
+
+```go
+func setDarwinSystemProxy(server string, enabled bool, proxyType string, bypass string, services []string) error {
+	// Filter services against actually-available network services to avoid
+	// "Unable to find item in network database" errors when stored config
+	// contains stale entries like "Ethernet" on a Wi-Fi-only Mac.
+	if available, err := getDarwinNetworkServices(); err == nil && len(available) > 0 {
+		availableSet := make(map[string]bool, len(available))
+		for _, s := range available {
+			availableSet[s] = true
+		}
+		filtered := services[:0]
+		for _, s := range services {
+			if availableSet[strings.TrimSpace(s)] {
+				filtered = append(filtered, s)
+			}
+		}
+		// If all provided services were invalid, fall back to all available ones
+		if len(filtered) == 0 {
+			services = available
+		} else {
+			services = filtered
+		}
+	}
+
+	commands := [][]string{}
+	for _, device := range services {
+		device = strings.TrimSpace(device)
+		if device == "" {
+			continue
+		}
+		// ... rest of function
+```
+
+**Why this matters**: Even with frontend migration logic, users who don't restart the app or have the frontend load before the backend fix would still hit errors. Backend validation ensures immediate relief.
 
 ### 2. Frontend Bridge: `frontend/src/bridge/wailsjs/go/bridge/`
 
