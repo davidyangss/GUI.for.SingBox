@@ -287,7 +287,16 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
         Env: getKernelRuntimeEnv(isAlpha),
       },
     )
+    
+    // Add timeout to prevent infinite waiting when sing-box crashes immediately
+    const startTime = Date.now()
+    const maxStartupWait = 30000 // 30 seconds max startup time
+    
     while (!stopped) {
+      if (Date.now() - startTime > maxStartupWait) {
+        throw 'Startup timeout. Check logs for details.'
+      }
+      
       const ok = await probeApiAvailability().catch(() => false)
       if (ok) break
       if (stopped) throw 'Startup failed. Check logs for details.'
@@ -317,20 +326,31 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
     await pluginsStore.onCoreStartedTrigger()
   }
 
+  const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`Timeout: ${label} (${ms}ms)`)), ms)
+      promise.then(
+        (v) => { clearTimeout(timer); resolve(v) },
+        (e) => { clearTimeout(timer); reject(e) },
+      )
+    })
+  }
+
   const onCoreStopped = async () => {
     if (!isCoreStartedByThisInstance) {
-      await RemoveFile(CorePidFilePath)
+      await RemoveFile(CorePidFilePath).catch(() => {})
     }
 
     corePid.value = -1
     running.value = false
+    isCoreStartedByThisInstance = false
     needRestart.value = false
 
     destroyWebsocket()
 
-    await envStore.updateSystemProxyStatus()
+    await envStore.updateSystemProxyStatus().catch(() => {})
     if (envStore.systemProxy) {
-      await envStore.clearSystemProxy()
+      await envStore.clearSystemProxy().catch((err) => message.error(err))
     }
     if (appSettingsStore.app.autoSetSystemDNS || envStore.systemDNSSet) {
       await envStore.setSystemDNS(false).catch((err) => message.error(err))
@@ -338,7 +358,9 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
 
     resetConfig()
 
-    await pluginsStore.onCoreStoppedTrigger()
+    await pluginsStore.onCoreStoppedTrigger().catch((err) => {
+      console.warn('[kernelApi] onCoreStoppedTrigger error (ignored):', err)
+    })
 
     coreStoppedResolver(null)
   }
@@ -374,9 +396,21 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
 
     stopping.value = true
     try {
-      await pluginsStore.onBeforeCoreStopTrigger()
-      await KillProcess(corePid.value)
-      await (isCoreStartedByThisInstance ? coreStoppedPromise : onCoreStopped())
+      await pluginsStore.onBeforeCoreStopTrigger().catch((err) => {
+        console.warn('[kernelApi] onBeforeCoreStopTrigger error (ignored):', err)
+      })
+
+      await KillProcess(corePid.value).catch((err) => {
+        console.warn('[kernelApi] KillProcess error (ignored):', err)
+      })
+
+      // Wait for process to fully stop, with a 15-second timeout to prevent GUI freeze
+      const stopWait = isCoreStartedByThisInstance ? coreStoppedPromise : onCoreStopped()
+      await withTimeout(stopWait, 15000, 'waiting for core to stop').catch(async (err) => {
+        console.warn('[kernelApi] stopCore wait timeout or error, forcing cleanup:', err)
+        // Force cleanup state so GUI does not stay stuck
+        await onCoreStopped().catch(() => {})
+      })
     } finally {
       stopping.value = false
     }
@@ -388,6 +422,9 @@ export const useKernelApiStore = defineStore('kernelApi', () => {
       await stopCore()
       await cleanupTask?.()
       await startCore(keepRuntimeProfile ? runtimeProfile : undefined)
+    } catch (err) {
+      // Surface error but do not leave restarting stuck
+      throw err
     } finally {
       needRestart.value = false
       restarting.value = false
