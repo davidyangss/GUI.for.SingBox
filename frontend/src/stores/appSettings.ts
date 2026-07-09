@@ -68,7 +68,7 @@ export const useAppSettingsStore = defineStore('app-settings', () => {
     autoSetSystemDNS: false,
     requestProxyMode: RequestProxyMode.System,
     customProxy: '',
-    proxyBypassList: '',
+    proxyBypassList: '127.0.0.1;localhost;126.0.0.1;10.0.0.0/8;192.168.0.0/16;.orb.local;.local;.orb.internal;.internal;.yssbook',
     systemProxyServices: [],
     systemProxyDNS: '',
     systemDefaultDNS: '',
