@@ -212,17 +212,30 @@ watch(
 ### Scenario 1: Create profile with same name as existing subscription
 1. User adds subscription "BaoMaYun" in subscriptions page
 2. User creates new profile named "BaoMaYun" in profiles page
-3. **New behavior**: Profile automatically includes "BaoMaYun" subscription in its select/urltest outbounds
-4. When generating config, nodes from "BaoMaYun" subscription are expanded into the outbounds
+3. **As user types "BaoMaYun"**: The watcher detects the matching subscription and immediately pushes the subscription reference into `outbounds[0]` and `outbounds[1]`
+4. **Profile saved with reference**: 
+   ```yaml
+   outbounds:
+     - tag: 🚀 节点选择
+       outbounds:
+         - id: ID_eyitfp4r
+           tag: BaoMaYun
+           type: Subscription  # ← Auto-linked
+   ```
+5. **When kernel starts**: `generateOutbounds()` reads `data/subscribes/ID_eyitfp4r.json`, expands all proxy nodes into the final sing-box config, and nodes appear in selector/urltest groups
 
 ### Scenario 2: Create profile with no matching subscription
 1. User creates new profile named "MyCustomProfile"
 2. No subscription exists with that name
-3. **Behavior**: Profile created with default empty outbounds (unchanged)
+3. **Behavior**: Watcher runs but finds no match; profile created with default empty outbounds (unchanged)
 
 ### Scenario 3: Create profile with empty name
 1. User creates profile without specifying a name (auto-generated ID)
-2. **Behavior**: Profile created with default empty outbounds (unchanged)
+2. **Behavior**: Watcher skips due to empty name check; profile created with default empty outbounds (unchanged)
+
+### Scenario 4: Edit existing profile
+1. User opens an existing profile in the form
+2. **Behavior**: Watcher detects `props.id` and skips auto-linking (no modification to existing profiles)
 
 ## Testing Checklist
 
